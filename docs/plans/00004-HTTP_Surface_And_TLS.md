@@ -8,10 +8,10 @@ tags:
   - claude-code
 type: delivery-plan
 plan_id: "PLAN-00004"
-plan_status: draft
+plan_status: approved
 plan_kind: initial
 created_at: "2026-09-18T21:38:46Z"
-approved_at: null
+approved_at: "2026-09-18T21:50:34Z"
 planner_agent: Claude Code
 planner_model: "anthropic/claude-fable-5-1"
 triggered_by: user
@@ -26,8 +26,8 @@ previous_plan: null
 requirements_count: 12
 steps_count: 11
 acceptance_criteria_count: 14
-blocking_decisions: 2
-build_ready: false
+blocking_decisions: 0
+build_ready: true
 web_research_used: false
 confidence: medium
 
@@ -45,13 +45,12 @@ current_step: null
 
 # Delivery Plan 00004: HTTP Surface And TLS
 
-> [!abstract] Plan status: `draft`
+> [!abstract] Plan status: `approved`
 > The third slice of server v0.1.0: `passalong-server serve`. Every one of
 > the contract's 26 operations becomes a route, behind authentication,
 > limits, and TLS, and a client can connect. Docker and systemd are the
-> slice after. Two decisions await the user: D-02 (HTTP/1.1 only in v0.1)
-> and D-03 (which forwarded address is trusted behind a proxy). Approving
-> the plan accepts both proposals.
+> slice after. D-02 (HTTP/1.1 only in v0.1) and D-03 (the
+> rightmost forwarded address is the trusted one) were accepted at approval.
 
 ## 1. Objective and outcome
 
@@ -150,8 +149,8 @@ material.
 | ID | Decision or blocker | Resolution | Owner | Status |
 |---|---|---|---|---|
 | PLAN-00004-D-01 | The stack | `tokio`, `axum` (HTTP/1.1, JSON, query; no default features), `hyper`, `hyper-util`, `rustls` and `tokio-rustls` with `ring`, as the client chose for `russh`, `rustls-pki-types`, `rcgen` for `tls self-signed`. Tried together against `deny.toml` on a copy outside the repository on 2026-09-18: 171 packages; advisories, licences, and sources pass. Bans failed on one duplicate: `ring` uses `getrandom` 0.2 and this repository 0.4. The client carries a `skip` for the same. Here it is avoidable: the repository's one call to `getrandom` is written for 0.2 instead, after which bans pass, and the stack builds | Planner | Resolved |
-| PLAN-00004-D-02 | HTTP versions | Proposed: HTTP/1.1 only in v0.1. The API is a few small JSON calls and one stream per item; HTTP/2 buys multiplexing nobody needs yet and costs a second protocol stack on the security boundary. A reverse proxy may speak HTTP/2 to clients and 1.1 to the server. Adding it later breaks nothing | @joelee | **Open.** Approving this plan accepts the proposal |
-| PLAN-00004-D-03 | The client address behind a proxy, for rate limiting | Proposed: with `listen.behind_proxy = true`, the **rightmost** entry of `X-Forwarded-For`, which is the one the operator's own proxy wrote; anything to its left is the client's claim. Without the header, or with `behind_proxy = false`, the peer address. Documented with the consequence: one proxy in front is assumed; with two, the limit applies to the outer proxy | @joelee | **Open.** Approving this plan accepts the proposal |
+| PLAN-00004-D-02 | HTTP versions | Proposed: HTTP/1.1 only in v0.1. The API is a few small JSON calls and one stream per item; HTTP/2 buys multiplexing nobody needs yet and costs a second protocol stack on the security boundary. A reverse proxy may speak HTTP/2 to clients and 1.1 to the server. Adding it later breaks nothing | @joelee | Resolved 2026-09-18T21:50:34Z: accepted as proposed |
+| PLAN-00004-D-03 | The client address behind a proxy, for rate limiting | Proposed: with `listen.behind_proxy = true`, the **rightmost** entry of `X-Forwarded-For`, which is the one the operator's own proxy wrote; anything to its left is the client's claim. Without the header, or with `behind_proxy = false`, the peer address. Documented with the consequence: one proxy in front is assumed; with two, the limit applies to the outer proxy | @joelee | Resolved 2026-09-18T21:50:34Z: accepted as proposed |
 | PLAN-00004-D-04 | The bridge between `axum` and the synchronous core | Every engine call runs in `spawn_blocking`. An upload's body is pumped through a bounded channel into a `std::io::Read` the shelf reads from, so content is never held whole and a slow client slows only its own upload. A download is the reverse. The workspace's engine sits in an `Arc`; reads take `&self`, writes a mutex held for the call and never across an await on the network | Planner | Resolved |
 | PLAN-00004-D-05 | `Range` | One range per request: `bytes=a-b`, `a-`, and `-n`, answered 206 with `Content-Range`; several ranges are answered with the whole item, 200, which the HTTP specification allows; an unsatisfiable range is 416. `ItemShelf` gains reading from an offset, which a file does by seeking | Planner | Resolved |
 | PLAN-00004-D-06 | Reloading certificates | The certificate and key files are read again when their modification time changes, checked every 30 s; a pair that does not load is logged and the old pair kept. No signal handling to get wrong, and certbot or a proxy's renewal needs no hook | Planner | Resolved |
@@ -733,6 +732,7 @@ None.
 | Timestamp (UTC) | Plan status | Change | Reason | Requested/approved by |
 |---|---|---|---|---|
 | 2026-09-18T21:38:46Z | draft | Plan created | "commit and proceed" | @joelee |
+| 2026-09-18T21:50:34Z | approved | Approved ("D-02 and D-03 as proposed. Plan approved."). The draft was committed by the planner on that approval, as `docs/plans/AGENTS.md`, "Committing a draft", allows | User approval | @joelee |
 
 ## 19. External references
 
