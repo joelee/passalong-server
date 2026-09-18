@@ -9,5 +9,9 @@ repository.workspace = true
 homepage.workspace = true
 description = "passalong server domain: configuration, workspaces, API keys, and the item store"
 
+[dev-dependencies]
+# Parses docs/api/openapi.json in tests/openapi.rs.
+serde_json.workspace = true
+
 [lints]
 workspace = true

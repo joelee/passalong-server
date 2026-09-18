@@ -25,6 +25,9 @@ homepage = "https://github.com/joelee/passalong-server"
 passalong-server-core = { path = "crates/passalong-server-core", version = "=0.1.0" }
 passalong-server-api = { path = "crates/passalong-server-api", version = "=0.1.0" }
 
+# Test-only
+serde_json = "1.0.151"
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"
