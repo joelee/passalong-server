@@ -868,7 +868,7 @@
     "/v1/uploads/{uploadId}/content": {
       "put": {
         "operationId": "putUploadContent",
-        "summary": "The item's bytes. `Content-Length` must equal the announced size.",
+        "summary": "The item's bytes. `Content-Length` must equal the announced size; content that runs past it is refused with CONTENT_MISMATCH as it arrives, and the staging place is left empty.",
         "parameters": [
           {
             "name": "uploadId",
@@ -901,6 +901,7 @@
           }
         },
         "x-passalong-errors": [
+          "CONTENT_MISMATCH",
           "INVALID_ID",
           "INVALID_REQUEST",
           "ITEM_TOO_LARGE",

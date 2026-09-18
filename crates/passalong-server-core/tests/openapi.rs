@@ -228,3 +228,25 @@ fn staged_items_can_be_read_back_and_not_deleted() {
     }
     assert_eq!(partitions("/v1/items/{id}", "delete"), ["current", "plain"]);
 }
+
+#[test]
+fn content_longer_than_announced_is_refused_as_it_arrives() {
+    // The shelf refuses it mid-stream (PLAN-00002), so the operation that
+    // carries content must be able to say so, not only the commit.
+    let document = document();
+    for path in [
+        "/v1/uploads/{uploadId}/content",
+        "/v1/uploads/{uploadId}/commit",
+    ] {
+        let method = if path.ends_with("content") {
+            "put"
+        } else {
+            "post"
+        };
+        let errors = document["paths"][path][method]["x-passalong-errors"].to_string();
+        assert!(
+            errors.contains("CONTENT_MISMATCH"),
+            "{method} {path}: {errors}"
+        );
+    }
+}

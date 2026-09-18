@@ -95,7 +95,7 @@ because JSON numbers lose precision above 2^53 and item sizes are `u64`.
 | Operation | Route | Notes |
 |---|---|---|
 | `beginUpload` | `POST /v1/uploads` | `{ id, meta, size, expectedKeyId, inRewrite }`. 201 with an upload ticket (`uploadId`, `expiresAt`), or 200 with a put outcome when the content is already stored |
-| `putUploadContent` | `PUT /v1/uploads/{uploadId}/content` | The bytes; `Content-Length` must equal `size`. 204 |
+| `putUploadContent` | `PUT /v1/uploads/{uploadId}/content` | The bytes; `Content-Length` must equal `size`. 204. Content that runs past `size` is refused with `CONTENT_MISMATCH` as it arrives, and the staging place is left empty, so the content can be sent again |
 | `commitUpload` | `POST /v1/uploads/{uploadId}/commit` | Verifies, deduplicates, publishes. Answers the put outcome: `{ item, created }` |
 | `abortUpload` | `DELETE /v1/uploads/{uploadId}` | 204 |
 
@@ -159,7 +159,7 @@ most:
 | `REWRITE_ENDED` | 409 | `beginRewrite` names the new key id of a rewrite that was aborted: a duplicate of an old request | No; begin again under a new key |
 | `QUOTA_EXCEEDED` | 413 | The workspace is full | No |
 | `ITEM_TOO_LARGE` | 413 | Larger than `maxItemBytes`; a limit the other backends do not have, so the client names it and the limit in its message | No |
-| `CONTENT_MISMATCH` | 422 | Size or, in a plaintext workspace, SHA-256 differs from `meta` | No |
+| `CONTENT_MISMATCH` | 422 | The content is longer than announced (`putUploadContent`), or at the commit its size or, in a plaintext workspace, its SHA-256 differs from what was announced | No; send the right content |
 | `NOT_FOUND` | 404 | As named | No |
 | `INVALID_ID`, `INVALID_REQUEST` | 400 | As named | No |
 | `RATE_LIMITED` | 429 | Too many failed authentications | Yes, after `Retry-After` |
