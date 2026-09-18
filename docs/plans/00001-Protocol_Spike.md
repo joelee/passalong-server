@@ -8,10 +8,10 @@ tags:
   - claude-code
 type: delivery-plan
 plan_id: "PLAN-00001"
-plan_status: draft
+plan_status: approved
 plan_kind: initial
 created_at: "2026-09-18T16:33:26Z"
-approved_at: null
+approved_at: "2026-09-18T16:56:56Z"
 planner_agent: Claude Code
 planner_model: "anthropic/claude-fable-5-1"
 triggered_by: user
@@ -26,8 +26,8 @@ previous_plan: null
 requirements_count: 8
 steps_count: 8
 acceptance_criteria_count: 9
-blocking_decisions: 1
-build_ready: false
+blocking_decisions: 0
+build_ready: true
 web_research_used: false
 confidence: medium
 
@@ -45,12 +45,12 @@ current_step: null
 
 # Delivery Plan 00001: Protocol Spike
 
-> [!abstract] Plan status: `draft`
+> [!abstract] Plan status: `approved`
 > Runs the experiment of IDEA-00001 r03 §14: a complete OpenAPI contract, an
 > in-memory model of uploads and encryption changes that survives a client
 > interrupted or replaying at every step, and a function-by-function mapping
-> of the client's encryption code onto the API. It builds no server. One
-> decision (D-02) awaits the user; approving the plan settles it.
+> of the client's encryption code onto the API. It builds no server. D-02
+> was settled at approval: a fresh start is one atomic call.
 
 ## 1. Objective and outcome
 
@@ -146,7 +146,7 @@ material.
 | ID | Decision or blocker | Resolution | Owner | Status |
 |---|---|---|---|---|
 | PLAN-00001-D-01 | IDEA-00001 is `revised`, not `accepted`, and `docs/plans/AGENTS.md` wants an accepted source | The user's instruction of 2026-09-18, "start the protocol spike", authorises planning the experiment of r03 §14 from the non-accepted revision. It authorises nothing beyond the spike | @joelee | Resolved |
-| PLAN-00001-D-02 | r03 makes a fresh start a rewrite-session kind (`FRESH_START`). The client does not: `fresh_start` is a journalled *header change* that re-encrypts nothing, like `set_up` and `change_words` (`encryption/admin.rs`, `run_change(.., HeaderChangeKind::FreshStart, ..)`); only `Migrate` and `Rotate` are `RewriteKind`s (`encryption/rewrite.rs`) | Proposed: the API follows the client. `freshStart` becomes one atomic call that moves the current generation to the `plain` partition and installs the header; sessions exist for `migrate` and `rotate` only. Fewer states, no lease for an operation that takes milliseconds, and the same shape as the code the client will call it from | @joelee | **Open.** Approving this plan accepts the proposal; say so to keep `FRESH_START` as a session kind |
+| PLAN-00001-D-02 | r03 makes a fresh start a rewrite-session kind (`FRESH_START`). The client does not: `fresh_start` is a journalled *header change* that re-encrypts nothing, like `set_up` and `change_words` (`encryption/admin.rs`, `run_change(.., HeaderChangeKind::FreshStart, ..)`); only `Migrate` and `Rotate` are `RewriteKind`s (`encryption/rewrite.rs`) | Proposed: the API follows the client. `freshStart` becomes one atomic call that moves the current generation to the `plain` partition and installs the header; sessions exist for `migrate` and `rotate` only. Fewer states, no lease for an operation that takes milliseconds, and the same shape as the code the client will call it from | @joelee | Resolved 2026-09-18T16:56:56Z: accepted. `freshStart` is one atomic call; sessions are for `migrate` and `rotate` only |
 | PLAN-00001-D-03 | Where the spike's code lives | In `passalong-server-core` as real modules, kept only if they meet REQ-08; v0.1.0 then puts the filesystem and the database behind the traits the model introduces | Planner | Resolved |
 | PLAN-00001-D-04 | A JSON parser is needed to test `openapi.json` | `serde` and `serde_json`, which the server needs in any case; `just audit` must pass with them. No other dependency | Planner | Resolved |
 
@@ -644,6 +644,7 @@ None.
 | Timestamp (UTC) | Plan status | Change | Reason | Requested/approved by |
 |---|---|---|---|---|
 | 2026-09-18T16:33:26Z | draft | Plan created | "start the protocol spike" | @joelee |
+| 2026-09-18T16:56:56Z | approved | Approved; D-02 resolved as proposed (one atomic call), confirmed by the user when asked which reading of "with FRESH START for D-02" was meant | User approval | @joelee |
 
 ## 19. External references
 
