@@ -1,9 +1,10 @@
 # Architecture
 
-> **Draft for discussion.** No server exists yet. The rules of workspaces,
-> uploads, and rewrite sessions are implemented and tested as an in-memory
-> model in `passalong-server-core` (PLAN-00001); everything around them is
-> still the design proposed by
+> **Partly built.** No server exists yet. The rules of workspaces, uploads,
+> and rewrite sessions (PLAN-00001), and the filesystem shelf and SQLite
+> control database under them, tested with the process killed at every
+> boundary between the two (PLAN-00002), exist in `passalong-server-core`.
+> Everything around them is still the design proposed by
 > [IDEA-00001](ideas/00001-HTTPS_Server_Backend-r04.md) and becomes the
 > description of the real system as plans deliver it.
 
@@ -168,25 +169,94 @@ second upload.
 
 ## Storage layout
 
+As built by PLAN-00002. One directory per workspace, one database for all:
+
 ```text
 <data_dir>/
-├── control.sqlite                 workspaces, API keys, audit trail
-└── workspaces/<workspace id>/
+├── control.sqlite                 the ledger: see below; 0600
+└── workspaces/<workspace id>/     0700, as every directory below
     ├── gen-<n>/items/<id>/
     │   ├── content                byte-identical to the client's file
-    │   └── meta.json              byte-identical to the client's file
-    ├── (the plain partition)      after a fresh start: a pointer to the
-    │                              generation that held the earlier items
-    ├── staging/<upload id>/       uploads in progress
-    └── gen-<n+1>/                 during a rewrite: the next generation
+    │   ├── meta.json              byte-identical to the client's file
+    │   └── server.json            the key id it came under, and when
+    ├── staging/<upload id>/content    uploads in progress
+    └── trash/                     what is on its way out
 ```
 
-The filesystem is the only record of items. The control database holds
-workspaces (id, name, quota, encryption state, current generation, key id,
-header) and keys, never items; each workspace's id index is rebuilt from a
-directory listing at start-up and kept in memory. Because `content` and
+The filesystem is the only record of items. Because `content` and
 `meta.json` match the client's files, importing a store from the `ssh` or
-`local` backend, or exporting one, is a copy.
+`local` backend, or exporting one, is a copy that leaves `server.json` out.
+The plain partition and a rewrite's next generation are ordinary `gen-<n>`
+directories that the ledger points to.
+
+Every path component is an `ItemId`, an `UploadId`, a `WorkspaceId`, or a
+number: hex digits and at most one dash. Nothing a client sends reaches a
+path any other way.
+
+- **Publishing** is a rename of `staging/<upload id>/` onto
+  `gen-<n>/items/<id>/`. `rename` refuses a non-empty directory, and an item
+  always holds files, so of two publishes of one id the first wins and the
+  second is told so, in one step. (An empty directory would be replaced; it
+  is not an item, and is neither listed nor in the way.)
+- **Removing** an item or a generation is a rename into `trash/`, so it
+  disappears whole; emptying the trash may be cut short and is finished when
+  the shelf is next opened.
+- **Durability.** `content` is flushed before it may be published, and the
+  directories after the rename; SQLite runs with `synchronous = FULL`. This
+  is ordinary care. It is not tested, because a test can kill a process but
+  cannot cut power, and nothing more is claimed.
+- Content streams in and out in pieces of 64 KiB; no item is held in
+  memory. Content longer than was announced is refused while it arrives.
+- The data directory belongs on a local filesystem: WAL mode needs shared
+  memory, which network filesystems do not give.
+
+### The ledger
+
+`control.sqlite`, WAL mode, schema version 1; a database of a newer version
+is refused. `passalong_server_core::ledger::sqlite` has the DDL.
+
+| Table | Holds |
+|---|---|
+| `workspaces` | Generation pointers; the seal readers go by (key id and header); the open rewrite session, if any: kind, new key id and header, holder, lease, staged generation |
+| `generations` | Bytes published per live generation, as the quota counts them |
+| `uploads` | Tickets: owner, proposed id, `meta`, size, expected key id, expiry |
+| `tombstones` | Outcomes of finished uploads, kept for replays |
+| `ended_rewrites` | New key ids of aborted rewrites, kept for good |
+| `schema_version` | One row |
+
+Every transaction begins `IMMEDIATE`. SQLite then queues writers, in this
+process and in any other with the file open, for the busy timeout, and the
+rules run *inside* the transaction: the database's write lock is the
+workspace lock, also against the operations CLI. One thing SQLite does not
+wait for is the switch to WAL mode when a database is new; the ledger waits
+for that itself, or the CLI and the server starting together would fail.
+
+## After a crash
+
+The rules touch two stores, and a process can die between them. Two
+orderings keep that harmless, and `tests/kill.rs` kills a child process at
+every passage of every boundary to show it (181 kills at the time of
+writing), with a control that fails when the repair is switched off:
+
+- **Constructive shelf steps come before the record is stored.** A publish
+  happens inside the transaction. Killed before the commit, the item is on
+  the shelf and the record knows nothing of it: it is listed, since the
+  shelf is the record of items, and the byte count is wrong until the
+  workspace is next opened. The client's repeated `commitUpload` finds its
+  staging place gone and its item there, finishes the record, and answers
+  `created: true`, as the first would have.
+- **Destructive shelf steps come after the transaction has committed.** The
+  rules only *ask* for them. `commitRewrite` dropping the old generation
+  before the record pointed to the new one would lose every item to a kill
+  in between; the janitor removing an expired upload's staging place before
+  its ticket was gone would leave a ticket that cannot be used. Killed after
+  the commit and before the clean-up, there is rubbish nothing points to.
+
+Opening a workspace **reconciles** it: each live generation's bytes are
+taken from the shelf, and staging places without a ticket and generations
+nothing points to are removed, with a warning in the log saying how much.
+An upload id the record knows, as a ticket or as a remembered outcome, is
+never handed out again, whatever the random source does.
 
 ## Failing closed
 

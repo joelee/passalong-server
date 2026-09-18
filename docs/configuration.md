@@ -22,7 +22,7 @@ Unknown keys are rejected, as in the client.
 | Key | Default | Meaning |
 |---|---|---|
 | `server.log_level` | `info` | `error`, `warning`, `info`, `verbose`, or `debug` |
-| `server.data_dir` | `/var/lib/passalong-server` | Workspaces, the control database, staging |
+| `server.data_dir` | `/var/lib/passalong-server` | Workspaces, the control database, staging. On a local filesystem: the control database uses SQLite's WAL mode, which needs shared memory that network filesystems do not give |
 | `listen.address` | `0.0.0.0:8443` | Address and port |
 | `listen.mode` | `tls` | `tls`, or `plain` behind a TLS-terminating proxy |
 | `listen.behind_proxy` | `false` | Required for `plain` on a non-loopback address; also makes the server trust `X-Forwarded-For` for rate limiting |

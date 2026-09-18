@@ -5,12 +5,14 @@ Future work not covered by an active plan. Completed items are removed.
 ## @joelee road map for next releases
 
 ### v0.1.0
-- **PLAN-00002**, server v0.1.0, from IDEA-00001 r04, accepted on
-  2026-09-18 after the protocol spike (PLAN-00001, completed). First slice:
-  the filesystem shelf and the control database under the model's rules,
-  with a harness that kills the process between a rename and its
-  transaction (IDEA-00001-R04-MED-01). Then API keys and the CLI, the HTTP
-  surface and TLS, Docker and systemd.
+- **The next slices of server v0.1.0**, each with its own plan (PLAN-00002
+  D-01), now that the storage slice is done (PLAN-00002, completed):
+  1. API keys and the operations CLI: `init`, `workspace`, `key`, `check`;
+     the control database gains its `api_keys` and audit tables.
+  2. The HTTP surface and TLS: routes exported to `openapi.json`, the
+     authentication layer, limits, the plaintext content check
+     (IDEA-00001-R04-LOW-05), the janitor on a timer, `serve`.
+  3. Docker and systemd: `service install`, the image, `deploy/docker`.
 - **The client's v0.3.0 backend plan**, in the client repository, from
   `docs/api/openapi.json` and `docs/api/client-encryption-mapping.md`, once
   that first slice confirms the contract needs no change.
@@ -39,6 +41,11 @@ Future work not covered by an active plan. Completed items are removed.
 - **A static musl build and a distroless image.**
 - **Metrics endpoint.**
 - **ACME.**
+
+- **An in-memory id index per workspace.** Listing reads the directory;
+  measure before optimising.
+- **`workspace show` and an operator's abort of a dead rewrite session**
+  (IDEA-00001-R04-LOW-04), with the CLI slice.
 
 ### Process
 
