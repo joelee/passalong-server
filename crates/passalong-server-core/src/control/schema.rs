@@ -7,7 +7,7 @@
 //! that migrate from it. A new version is a new step at the end.
 
 /// The steps, in order. The schema version is how many there are.
-pub(crate) const STEPS: &[&str] = &[V1, V2];
+pub(crate) const STEPS: &[&str] = &[V1, V2, V3];
 
 const V1: &str = "
 CREATE TABLE schema_version (version INTEGER NOT NULL);
@@ -91,4 +91,11 @@ CREATE TABLE audit (
     key_id TEXT,
     detail TEXT
 ) STRICT;
+";
+
+/// A remembered upload outcome says whether its item was staged for a
+/// rewrite. Outcomes from before are of the workspace's items or, if they
+/// were not, are forgotten within the hour anyway.
+const V3: &str = "
+ALTER TABLE tombstones ADD COLUMN staged INTEGER NOT NULL DEFAULT 0;
 ";

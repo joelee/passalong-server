@@ -7,6 +7,7 @@
 //! │   ├── meta.json      the client's bytes, untouched
 //! │   └── server.json    the key id it came under, and when
 //! ├── staging/<upload id>/content
+//! ├── staging/<upload id>.sha256   the server's note for a plaintext upload
 //! └── trash/             what is on its way out
 //! ```
 //!
@@ -24,7 +25,7 @@
 //! reaches a path any other way.
 
 use std::fs::{self, DirBuilder, File, OpenOptions};
-use std::io::{ErrorKind, Read, Write};
+use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -138,6 +139,7 @@ impl FsShelf {
         make_dir(&shelf.staging())?;
         make_dir(&shelf.trash())?;
         shelf.empty_trash()?;
+        shelf.sweep_digests()?;
         Ok(shelf)
     }
 
@@ -147,6 +149,12 @@ impl FsShelf {
 
     fn trash(&self) -> PathBuf {
         self.root.join("trash")
+    }
+
+    /// Beside the staging directory, not in it: the directory becomes the
+    /// item, and the digest is not part of an item.
+    fn digest_file(&self, upload: &UploadId) -> PathBuf {
+        self.staging().join(format!("{}.sha256", upload.as_str()))
     }
 
     fn staged_dir(&self, upload: &UploadId) -> PathBuf {
@@ -159,6 +167,70 @@ impl FsShelf {
 
     fn item_dir(&self, generation: u64, id: &ItemId) -> PathBuf {
         self.items(generation).join(id.as_str())
+    }
+
+    fn remove_digest(&self, upload: &UploadId) -> Result<(), ApiError> {
+        let path = self.digest_file(upload);
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
+            Err(err) => Err(unavailable("remove a digest", &path, &err)),
+        }
+    }
+
+    fn write(
+        &self,
+        upload: &UploadId,
+        content: &mut dyn Read,
+        announced: u64,
+        hashed: bool,
+    ) -> Result<u64, ApiError> {
+        let dir = self.staged_dir(upload);
+        if !dir.is_dir() {
+            return Err(ApiError::NotFound);
+        }
+        // The digest of what was there is the digest of nothing now.
+        self.remove_digest(upload)?;
+        let path = dir.join(CONTENT);
+        let mut file = create_file(&path)?;
+        let mut hasher = hashed.then(sha2::Sha256::default);
+        let written = pump(content, announced, hasher.as_mut(), |piece| {
+            file.write_all(piece)
+                .map_err(|err| unavailable("write content", &path, &err))
+        });
+        match written {
+            Ok(total) => {
+                // On the disk before anyone may publish it.
+                file.sync_all()
+                    .map_err(|err| unavailable("flush content", &path, &err))?;
+                if let Some(hasher) = hasher {
+                    let digest: [u8; 32] = sha2::Digest::finalize(hasher).into();
+                    write_file(&self.digest_file(upload), &digest)?;
+                }
+                Ok(total)
+            }
+            Err(refusal) => {
+                file.set_len(0)
+                    .map_err(|err| unavailable("empty the staging place", &path, &err))?;
+                Err(refusal)
+            }
+        }
+    }
+
+    /// Digests whose upload is gone: a publish or a removal was cut short
+    /// between the directory and its note.
+    fn sweep_digests(&self) -> Result<(), ApiError> {
+        for (name, path) in entries(&self.staging())? {
+            let orphan = name
+                .strip_suffix(".sha256")
+                .and_then(|upload| UploadId::parse(upload).ok())
+                .is_some_and(|upload| !self.staged_dir(&upload).is_dir());
+            if orphan {
+                fs::remove_file(&path)
+                    .map_err(|err| unavailable("remove a digest", &path, &err))?;
+            }
+        }
+        Ok(())
     }
 
     fn empty_trash(&self) -> Result<(), ApiError> {
@@ -244,28 +316,24 @@ impl ItemShelf for FsShelf {
         content: &mut dyn Read,
         announced: u64,
     ) -> Result<u64, ApiError> {
-        let dir = self.staged_dir(upload);
-        if !dir.is_dir() {
-            return Err(ApiError::NotFound);
-        }
-        let path = dir.join(CONTENT);
-        let mut file = create_file(&path)?;
-        let written = pump(content, announced, |piece| {
-            file.write_all(piece)
-                .map_err(|err| unavailable("write content", &path, &err))
-        });
-        match written {
-            Ok(total) => {
-                // On the disk before anyone may publish it.
-                file.sync_all()
-                    .map_err(|err| unavailable("flush content", &path, &err))?;
-                Ok(total)
-            }
-            Err(refusal) => {
-                file.set_len(0)
-                    .map_err(|err| unavailable("empty the staging place", &path, &err))?;
-                Err(refusal)
-            }
+        self.write(upload, content, announced, false)
+    }
+
+    fn stage_write_hashed(
+        &self,
+        upload: &UploadId,
+        content: &mut dyn Read,
+        announced: u64,
+    ) -> Result<u64, ApiError> {
+        self.write(upload, content, announced, true)
+    }
+
+    fn stage_digest(&self, upload: &UploadId) -> Result<Option<[u8; 32]>, ApiError> {
+        let path = self.digest_file(upload);
+        match fs::read(&path) {
+            Ok(bytes) => Ok(bytes.try_into().ok()),
+            Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(unavailable("read a digest", &path, &err)),
         }
     }
 
@@ -279,7 +347,8 @@ impl ItemShelf for FsShelf {
     }
 
     fn stage_remove(&self, upload: &UploadId) -> Result<(), ApiError> {
-        self.discard(&self.staged_dir(upload)).map(|_| ())
+        self.discard(&self.staged_dir(upload))?;
+        self.remove_digest(upload)
     }
 
     fn staged(&self) -> Result<Vec<UploadId>, ApiError> {
@@ -327,6 +396,7 @@ impl ItemShelf for FsShelf {
             }
             Err(err) => return Err(unavailable("publish an item", &target, &err)),
         }
+        self.remove_digest(upload)?;
         sync_dir(&items)?;
         sync_dir(&self.staging())?;
         tracing::debug!(target: "passalong_server::shelf", generation, item = %id, "item published");
@@ -337,13 +407,23 @@ impl ItemShelf for FsShelf {
         self.read_item(&self.item_dir(generation, id))
     }
 
-    fn open_content(&self, generation: u64, id: &ItemId) -> Result<Option<Content>, ApiError> {
+    fn open_content_from(
+        &self,
+        generation: u64,
+        id: &ItemId,
+        offset: u64,
+    ) -> Result<Option<Content>, ApiError> {
         let path = self.item_dir(generation, id).join(CONTENT);
-        match File::open(&path) {
-            Ok(file) => Ok(Some(Box::new(file))),
-            Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
-            Err(err) => Err(unavailable("open content", &path, &err)),
+        let mut file = match File::open(&path) {
+            Ok(file) => file,
+            Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(err) => return Err(unavailable("open content", &path, &err)),
+        };
+        if offset > 0 {
+            file.seek(SeekFrom::Start(offset))
+                .map_err(|err| unavailable("seek in content", &path, &err))?;
         }
+        Ok(Some(Box::new(file)))
     }
 
     fn ids(&self, generation: u64) -> Result<Vec<ItemId>, ApiError> {

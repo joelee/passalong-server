@@ -541,6 +541,7 @@ fn limits() -> Limits {
         max_item_bytes: Some(100),
         staging_secs: STAGING,
         lease_secs: LEASE,
+        check_plaintext_content: false,
     }
 }
 
@@ -550,7 +551,7 @@ fn prepare<S: ItemShelf, L: Ledger>(
     scenario: &Scenario<S, L>,
 ) -> (Engine<S, L>, ManualClock, Expect) {
     let clock = ManualClock::at(1_000);
-    let mut engine = Engine::open(
+    let engine = Engine::open(
         shelf,
         ledger,
         WorkspaceId::generate(&mut SeededRandom::new(2)),
@@ -792,6 +793,17 @@ macro_rules! forward {
         ) -> Result<u64, ApiError> {
             self.inner.stage_write(upload, content, announced)
         }
+        fn stage_write_hashed(
+            &self,
+            upload: &UploadId,
+            content: &mut dyn std::io::Read,
+            announced: u64,
+        ) -> Result<u64, ApiError> {
+            self.inner.stage_write_hashed(upload, content, announced)
+        }
+        fn stage_digest(&self, upload: &UploadId) -> Result<Option<[u8; 32]>, ApiError> {
+            self.inner.stage_digest(upload)
+        }
         fn stage_size(&self, upload: &UploadId) -> Result<Option<u64>, ApiError> {
             self.inner.stage_size(upload)
         }
@@ -804,12 +816,13 @@ macro_rules! forward {
         fn get(&self, generation: u64, id: &ItemId) -> Result<Option<StoredItem>, ApiError> {
             self.inner.get(generation, id)
         }
-        fn open_content(
+        fn open_content_from(
             &self,
             generation: u64,
             id: &ItemId,
+            offset: u64,
         ) -> Result<Option<passalong_server_core::shelf::Content>, ApiError> {
-            self.inner.open_content(generation, id)
+            self.inner.open_content_from(generation, id, offset)
         }
         fn ids(&self, generation: u64) -> Result<Vec<ItemId>, ApiError> {
             self.inner.ids(generation)

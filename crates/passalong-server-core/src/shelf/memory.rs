@@ -16,11 +16,39 @@ pub struct MemoryShelf(Mutex<Shelves>);
 
 #[derive(Debug, Default)]
 struct Shelves {
-    staging: BTreeMap<UploadId, Vec<u8>>,
+    staging: BTreeMap<UploadId, (Vec<u8>, Option<[u8; 32]>)>,
     generations: BTreeMap<u64, BTreeMap<ItemId, (Vec<u8>, Envelope)>>,
 }
 
 impl MemoryShelf {
+    fn write(
+        &self,
+        upload: &UploadId,
+        content: &mut dyn Read,
+        announced: u64,
+        hashed: bool,
+    ) -> Result<u64, ApiError> {
+        if !self.lock().staging.contains_key(upload) {
+            return Err(ApiError::NotFound);
+        }
+        // The lock is not held while the content arrives: that may take long.
+        let mut bytes = Vec::new();
+        let mut hasher = hashed.then(sha2::Sha256::default);
+        let written = pump(content, announced, hasher.as_mut(), |piece| {
+            bytes.extend_from_slice(piece);
+            Ok(())
+        });
+        let digest = hasher.map(|hasher| sha2::Digest::finalize(hasher).into());
+        let mut shelves = self.lock();
+        let staged = shelves.staging.get_mut(upload).ok_or(ApiError::NotFound)?;
+        *staged = if written.is_ok() {
+            (bytes, digest)
+        } else {
+            (Vec::new(), None)
+        };
+        written
+    }
+
     fn lock(&self) -> MutexGuard<'_, Shelves> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -45,19 +73,24 @@ impl ItemShelf for MemoryShelf {
         content: &mut dyn Read,
         announced: u64,
     ) -> Result<u64, ApiError> {
-        if !self.lock().staging.contains_key(upload) {
-            return Err(ApiError::NotFound);
-        }
-        // The lock is not held while the content arrives: that may take long.
-        let mut bytes = Vec::new();
-        let written = pump(content, announced, |piece| {
-            bytes.extend_from_slice(piece);
-            Ok(())
-        });
-        let mut shelves = self.lock();
-        let staged = shelves.staging.get_mut(upload).ok_or(ApiError::NotFound)?;
-        *staged = if written.is_ok() { bytes } else { Vec::new() };
-        written
+        self.write(upload, content, announced, false)
+    }
+
+    fn stage_write_hashed(
+        &self,
+        upload: &UploadId,
+        content: &mut dyn Read,
+        announced: u64,
+    ) -> Result<u64, ApiError> {
+        self.write(upload, content, announced, true)
+    }
+
+    fn stage_digest(&self, upload: &UploadId) -> Result<Option<[u8; 32]>, ApiError> {
+        Ok(self
+            .lock()
+            .staging
+            .get(upload)
+            .and_then(|(_, digest)| *digest))
     }
 
     fn stage_size(&self, upload: &UploadId) -> Result<Option<u64>, ApiError> {
@@ -65,7 +98,7 @@ impl ItemShelf for MemoryShelf {
             .lock()
             .staging
             .get(upload)
-            .map(|bytes| bytes.len() as u64))
+            .map(|(bytes, _)| bytes.len() as u64))
     }
 
     fn stage_remove(&self, upload: &UploadId) -> Result<(), ApiError> {
@@ -95,7 +128,7 @@ impl ItemShelf for MemoryShelf {
         {
             return Ok(false);
         }
-        let content = shelves.staging.remove(upload).unwrap_or_default();
+        let (content, _) = shelves.staging.remove(upload).unwrap_or_default();
         shelves
             .generations
             .entry(generation)
@@ -113,13 +146,23 @@ impl ItemShelf for MemoryShelf {
             .map(stored))
     }
 
-    fn open_content(&self, generation: u64, id: &ItemId) -> Result<Option<Content>, ApiError> {
+    fn open_content_from(
+        &self,
+        generation: u64,
+        id: &ItemId,
+        offset: u64,
+    ) -> Result<Option<Content>, ApiError> {
         let shelves = self.lock();
         let item = shelves
             .generations
             .get(&generation)
             .and_then(|items| items.get(id));
-        Ok(item.map(|(content, _)| Box::new(Cursor::new(content.clone())) as Content))
+        Ok(item.map(|(content, _)| {
+            let from = usize::try_from(offset)
+                .unwrap_or(usize::MAX)
+                .min(content.len());
+            Box::new(Cursor::new(content[from..].to_vec())) as Content
+        }))
     }
 
     fn ids(&self, generation: u64) -> Result<Vec<ItemId>, ApiError> {

@@ -17,7 +17,7 @@ use passalong_server_core::shelf::FsShelf;
 use passalong_server_core::workspace::{EncryptionState, Engine, Partition, Role};
 use serde_json::{Value, json};
 
-use crate::cli::{InitArgs, KeyCommand, RewriteCommand, WorkspaceCommand};
+use crate::cli::{InitArgs, KeyCommand, RewriteCommand, TlsCommand, WorkspaceCommand};
 use crate::output::{size, table, timestamp, when};
 
 /// How long a command waits for the server, or another command, to finish a
@@ -127,7 +127,9 @@ pub fn init(args: &InitArgs) -> Done {
     }
     private_dir(&data_dir)?;
     private_dir(&data_dir.join("workspaces"))?;
-    let text = config::initial_file(&data_dir);
+    let file = std::path::absolute(&file).map_err(|err| format!("{}: {err}", file.display()))?;
+    let beside = file.parent().unwrap_or(Path::new("/"));
+    let text = config::initial_file(&data_dir, beside);
     let config = config::parse(&text, &file, &config::Process).map_err(said)?;
     std::fs::write(&file, text).map_err(|err| format!("{}: {err}", file.display()))?;
     Control::open(
@@ -142,6 +144,85 @@ pub fn init(args: &InitArgs) -> Done {
         file.display(),
         data_dir.display()
     ))
+}
+
+// ---------- TLS ----------
+
+/// Writes `text` to a file that must not exist yet, readable by its owner
+/// alone from its first byte on.
+fn write_new(path: &Path, text: &str) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(|err| format!("{}: {err}", path.display()))?;
+    file.write_all(text.as_bytes())
+        .and_then(|()| file.sync_all())
+        .map_err(|err| format!("{}: {err}", path.display()))
+}
+
+pub fn tls(host: &Host, command: &TlsCommand) -> Done {
+    let files = host.config.tls.as_ref().ok_or(
+        "the configuration has no [tls] section: set tls.cert_file and tls.key_file first",
+    )?;
+    match command {
+        TlsCommand::Fingerprint => {
+            let pem = std::fs::read(&files.cert_file).map_err(|err| {
+                format!(
+                    "{}: {err}. Make a pair with `passalong-server tls self-signed --host <name>`",
+                    files.cert_file.display()
+                )
+            })?;
+            let pin = passalong_server_api::tls::pin_of_pem(&pem)
+                .map_err(|err| format!("{}: {err}", files.cert_file.display()))?;
+            if host.json {
+                Ok(pretty(&json!({ "pin": pin })))
+            } else {
+                Ok(format!("{pin}\n"))
+            }
+        }
+        TlsCommand::SelfSigned { host: names, ip } => {
+            // Never over a pair, or half of one: a client may have pinned it.
+            for file in [&files.cert_file, &files.key_file] {
+                if file.exists() {
+                    return Err(format!(
+                        "{} exists already, and is left as it is. Clients may have pinned it; remove both files yourself if you mean to replace them",
+                        file.display()
+                    ));
+                }
+            }
+            let mut all = names.clone();
+            all.extend(ip.iter().map(ToString::to_string));
+            let pair =
+                passalong_server_api::tls::self_signed(&all, SystemClock.now()).map_err(said)?;
+            for file in [&files.cert_file, &files.key_file] {
+                if let Some(parent) = file.parent().filter(|parent| !parent.exists()) {
+                    private_dir(parent)?;
+                }
+            }
+            write_new(&files.key_file, &pair.key_pem)?;
+            write_new(&files.cert_file, &pair.cert_pem)?;
+            let pin =
+                passalong_server_api::tls::pin_of_pem(pair.cert_pem.as_bytes()).map_err(said)?;
+            if host.json {
+                return Ok(pretty(&json!({
+                    "certFile": files.cert_file.display().to_string(),
+                    "keyFile": files.key_file.display().to_string(),
+                    "names": all,
+                    "pin": pin,
+                })));
+            }
+            Ok(format!(
+                "wrote {}\nwrote {} (yours alone to read)\nfor {}\n\nNobody signed this certificate, so clients connect by its pin. In the client's configuration:\n\n  tls_pin = \"{pin}\"\n\n`passalong-server tls fingerprint` prints it again.\n",
+                files.cert_file.display(),
+                files.key_file.display(),
+                all.join(", "),
+            ))
+        }
+    }
 }
 
 // ---------- workspaces ----------
@@ -512,7 +593,7 @@ pub fn rewrite(host: &Host, command: &RewriteCommand) -> Done {
     let now = SystemClock.now();
     let (RewriteCommand::Show { workspace } | RewriteCommand::Abort { workspace, .. }) = command;
     let found = control.workspace(workspace).map_err(said)?;
-    let mut engine = host.engine(&found)?;
+    let engine = host.engine(&found)?;
     let Some(session) = engine.session_view().map_err(said)? else {
         return Err(format!(
             "workspace `{workspace}` has no rewrite session open"

@@ -10,7 +10,25 @@ homepage.workspace = true
 description = "passalong server API: REST routes, content streams, authentication, and TLS"
 
 [dependencies]
+axum.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
 passalong-server-core.workspace = true
+base64.workspace = true
+rcgen.workspace = true
+rustls.workspace = true
+rustls-pki-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+# Breaks the control database on purpose, to see the server fail closed.
+rusqlite.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

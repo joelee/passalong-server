@@ -60,6 +60,8 @@ fn seal(under: Option<&KeyId>, text: &str) -> Vec<u8> {
 fn open(dir: &Path, seed: u64, clock: &ManualClock) -> Result<Stores, ApiError> {
     let limits = Limits {
         staging_secs: STAGING_SECS,
+        // Made-up ids: the content check has tests of its own.
+        check_plaintext_content: false,
         ..Limits::default()
     };
     Engine::open(
@@ -277,7 +279,7 @@ fn worker(dir: &Path, name: &str, count: u32) -> Result<(), ApiError> {
 
 /// Begins and aborts `count` migrations, each under a key of its own.
 fn rewriter(dir: &Path, count: u32) -> Result<(), ApiError> {
-    let mut engine = open(dir, 5, &ManualClock::at(1_000))?;
+    let engine = open(dir, 5, &ManualClock::at(1_000))?;
     for n in 0..count {
         let new = key(&format!("{:04x}", 0xb000 + n));
         engine.begin_rewrite(

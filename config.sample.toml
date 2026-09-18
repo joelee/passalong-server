@@ -31,7 +31,8 @@ key_file = "/etc/passalong-server/tls/key.pem"
 max_item_bytes = "unlimited"
 # Default quota of a new workspace; `workspace create --quota` overrides it.
 workspace_quota_bytes = "20 GiB"
-# Failed authentications per client address per minute before 429.
+# Failed authentications per client address per minute before 429; 0 turns
+# the limit off. Behind a proxy the address is the last X-Forwarded-For entry.
 auth_failures_per_minute = 10
 
 [rewrite]

@@ -32,19 +32,38 @@ pub enum Commands {
     #[command(subcommand)]
     Rewrite(RewriteCommand),
     /// Check the configuration, the data directory, and every workspace.
-    Check,
-    /// Run the server. Not in this build yet.
-    Serve,
-    /// TLS certificates. Not in this build yet.
-    Tls {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true, hide = true)]
-        rest: Vec<String>,
+    Check {
+        /// Instead, ask the running server whether it is ready: exit 0 if
+        /// so, 1 if not. For a container's health check.
+        #[arg(long)]
+        health: bool,
     },
+    /// Run the server, until SIGTERM or Ctrl-C.
+    Serve,
+    /// Make a self-signed certificate, or print a certificate's pin.
+    #[command(subcommand)]
+    Tls(TlsCommand),
     /// The systemd service. Not in this build yet.
     Service {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, hide = true)]
         rest: Vec<String>,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TlsCommand {
+    /// Write a self-signed certificate and its key to tls.cert_file and
+    /// tls.key_file, and print the pin clients connect by.
+    SelfSigned {
+        /// A name clients will connect to. May be given more than once.
+        #[arg(long, value_name = "NAME", required = true)]
+        host: Vec<String>,
+        /// An address clients will connect to. May be given more than once.
+        #[arg(long, value_name = "ADDR")]
+        ip: Vec<std::net::IpAddr>,
+    },
+    /// Print the pin of the certificate in tls.cert_file.
+    Fingerprint,
 }
 
 #[derive(Debug, Args)]

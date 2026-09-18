@@ -17,7 +17,7 @@ impl RandomSource for OsRandom {
     /// When the operating system has no randomness to give. There is
     /// nothing safe to do instead: a guessable key is worse than no server.
     fn fill(&mut self, bytes: &mut [u8]) {
-        getrandom::fill(bytes).expect("the operating system's random source failed");
+        getrandom::getrandom(bytes).expect("the operating system's random source failed");
     }
 }
 

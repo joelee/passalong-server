@@ -45,6 +45,8 @@ fn stores(dir: &Path) -> (FsShelf, SqliteLedger, WorkspaceId) {
 fn limits() -> Limits {
     Limits {
         staging_secs: STAGING_SECS,
+        // Made-up ids: the content check has tests of its own.
+        check_plaintext_content: false,
         ..Limits::default()
     }
 }
@@ -186,7 +188,7 @@ const SCENARIOS: &[Scenario] = &[
 /// The scenario's end, once everything has settled and the janitor passed.
 fn ended_well(dir: &Path, scenario: &Scenario) -> Result<(), String> {
     let clock = ManualClock::at(1_000);
-    let mut engine = open(dir, &clock);
+    let engine = open(dir, &clock);
     consistent(&engine)?;
     clock.advance(2 * STAGING_SECS);
     engine.clean_staging().unwrap();

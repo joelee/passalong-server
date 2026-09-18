@@ -1,9 +1,9 @@
 //! One workspace: its encryption state, its generations of items, and the
 //! changes to its encryption that re-encrypt nothing.
 //!
-//! An [`Engine`] is reached through `&mut self`, which stands for the
-//! workspace lock: in the server, one mutex per workspace around a control
-//! database transaction. Every method is one API operation of
+//! Every operation of an [`Engine`] takes `&self` and runs as one ledger
+//! transaction, which is the workspace's lock: exclusive across threads and,
+//! with SQLite, across processes. So an engine is shared as it is. Every method is one API operation of
 //! `docs/api/README.md`, named in its documentation.
 
 use std::io::Read;
@@ -62,6 +62,10 @@ pub struct Limits {
     pub staging_secs: u64,
     /// How long a rewrite session's lease lasts without a heartbeat.
     pub lease_secs: u64,
+    /// Whether, in a plaintext workspace, a commit checks the content's
+    /// SHA-256 and size against `meta` and the id. The server does; tests of
+    /// other rules, which use made-up ids, switch it off.
+    pub check_plaintext_content: bool,
 }
 
 impl Default for Limits {
@@ -71,6 +75,7 @@ impl Default for Limits {
             max_item_bytes: None,
             staging_secs: 24 * 60 * 60,
             lease_secs: 10 * 60,
+            check_plaintext_content: true,
         }
     }
 }
@@ -82,6 +87,22 @@ pub enum Partition {
     Current,
     /// The plaintext items a fresh start set aside.
     Plain,
+}
+
+/// What `resolveItem` answers: what a user typed, turned into one item, by
+/// the passalong client's rules. It works on ids alone, so as well in an
+/// encrypted workspace as in a plaintext one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Resolved {
+    /// Exactly one item matches.
+    Id(ItemId),
+    /// Several do; newest first.
+    Ambiguous(Vec<ItemId>),
+    /// None does.
+    NotFound,
+    /// Fewer than 4 characters, or something other than hex digits and at
+    /// most one dash.
+    InvalidPrefix,
 }
 
 /// The encryption state, as `getWorkspace` reports it.
@@ -147,7 +168,9 @@ pub struct Rules<'a, S> {
     pub(crate) rec: &'a mut WorkspaceRecord,
     pub(crate) shelf: &'a S,
     pub(crate) clock: &'a dyn Clock,
-    pub(crate) rng: &'a mut dyn RandomSource,
+    /// Locked for the instant an id is made, and never across a rule: a rule
+    /// may spend minutes writing content to the shelf.
+    pub(crate) rng: &'a Mutex<Box<dyn RandomSource>>,
     pub(crate) limits: &'a Limits,
     /// What to remove from the shelf once the record is safely stored.
     pub(crate) after: Vec<Cleanup>,
@@ -164,6 +187,12 @@ pub(crate) enum Cleanup {
 }
 
 impl<S: ItemShelf> Rules<'_, S> {
+    /// A new upload id from the engine's random source.
+    pub(crate) fn new_upload_id(&self) -> UploadId {
+        let mut rng = self.rng.lock().unwrap_or_else(PoisonError::into_inner);
+        UploadId::generate(rng.as_mut())
+    }
+
     /// The seal readers and ordinary writers go by: during a rewrite, the
     /// one before it.
     pub(crate) fn seal(&self) -> Option<&Seal> {
@@ -216,6 +245,66 @@ impl<S: ItemShelf> Rules<'_, S> {
         }
     }
 
+    /// `listItemIds` with `after`: the ids newer than `after`, newest first.
+    /// Ids begin with their creation time, so comparing them is enough.
+    pub fn item_ids_after(
+        &self,
+        partition: Partition,
+        after: Option<&ItemId>,
+    ) -> Result<Vec<ItemId>, ApiError> {
+        let mut ids = self.item_ids(partition)?;
+        if let Some(after) = after {
+            ids.retain(|id| id > after);
+        }
+        Ok(ids)
+    }
+
+    /// `listItems`: envelopes and sizes, newest first, in one answer.
+    pub fn items_after(
+        &self,
+        partition: Partition,
+        after: Option<&ItemId>,
+    ) -> Result<Vec<(ItemId, StoredItem)>, ApiError> {
+        let mut items = Vec::new();
+        for id in self.item_ids_after(partition, after)? {
+            // An item deleted between the listing and the look is left out.
+            if let Some(item) = self.item(partition, &id)? {
+                items.push((id, item));
+            }
+        }
+        Ok(items)
+    }
+
+    /// `resolveItem`. Input without a dash is a prefix of the content key,
+    /// such as `2cf2`; with a dash, of the whole id. Case and surrounding
+    /// spaces are ignored; at least 4 characters are required.
+    pub fn resolve_item(&self, input: &str) -> Result<Resolved, ApiError> {
+        let typed = input.trim().to_ascii_lowercase();
+        let well_formed = typed.len() >= 4
+            && typed.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
+            && typed.bytes().filter(|b| *b == b'-').count() <= 1;
+        if !well_formed {
+            return Ok(Resolved::InvalidPrefix);
+        }
+        let whole_id = typed.contains('-');
+        let mut matches: Vec<ItemId> = self
+            .item_ids(Partition::Current)?
+            .into_iter()
+            .filter(|id| {
+                if whole_id {
+                    id.as_str().starts_with(&typed)
+                } else {
+                    id.content_key().starts_with(&typed)
+                }
+            })
+            .collect();
+        Ok(match matches.len() {
+            0 => Resolved::NotFound,
+            1 => Resolved::Id(matches.remove(0)),
+            _ => Resolved::Ambiguous(matches),
+        })
+    }
+
     /// `getItem`: the envelope and the size.
     pub fn item(&self, partition: Partition, id: &ItemId) -> Result<Option<StoredItem>, ApiError> {
         match self.generation_of(partition) {
@@ -231,8 +320,18 @@ impl<S: ItemShelf> Rules<'_, S> {
         partition: Partition,
         id: &ItemId,
     ) -> Result<Option<Content>, ApiError> {
+        self.item_content_from(partition, id, 0)
+    }
+
+    /// `getItemContent` with `Range`: the bytes from `offset` on.
+    pub fn item_content_from(
+        &self,
+        partition: Partition,
+        id: &ItemId,
+        offset: u64,
+    ) -> Result<Option<Content>, ApiError> {
         match self.generation_of(partition) {
-            Some(generation) => self.shelf.open_content(generation, id),
+            Some(generation) => self.shelf.open_content_from(generation, id, offset),
             None => Ok(None),
         }
     }
@@ -464,6 +563,11 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
         })
     }
 
+    /// The workspace's limits.
+    pub fn limits(&self) -> &Limits {
+        &self.limits
+    }
+
     /// The shelf, for inspection.
     pub fn shelf(&self) -> &S {
         &self.shelf
@@ -488,12 +592,11 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
         let mut after = Vec::new();
         let answer = self.ledger.transact(&self.workspace, &mut |rec| {
             let rule = rule.take().expect("a ledger runs its rule once");
-            let mut rng = self.rng.lock().unwrap_or_else(PoisonError::into_inner);
             let mut rules = Rules {
                 rec,
                 shelf: &self.shelf,
                 clock: self.clock.as_ref(),
-                rng: rng.as_mut(),
+                rng: &self.rng,
                 limits: &self.limits,
                 after: Vec::new(),
             };
@@ -520,12 +623,11 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
     /// Runs `rule` on a copy of the record and stores nothing.
     fn read<T>(&self, rule: impl FnOnce(&mut Rules<'_, S>) -> T) -> Result<T, ApiError> {
         let mut rec = self.ledger.load(&self.workspace)?;
-        let mut rng = self.rng.lock().unwrap_or_else(PoisonError::into_inner);
         Ok(rule(&mut Rules {
             rec: &mut rec,
             shelf: &self.shelf,
             clock: self.clock.as_ref(),
-            rng: rng.as_mut(),
+            rng: &self.rng,
             limits: &self.limits,
             after: Vec::new(),
         }))
@@ -556,6 +658,55 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
     /// As the rule, and [`ApiError::ServiceUnavailable`].
     pub fn item(&self, partition: Partition, id: &ItemId) -> Result<Option<StoredItem>, ApiError> {
         self.read(|rules| rules.item(partition, id))?
+    }
+
+    /// `listItemIds` with `after`; [`Rules::item_ids_after`].
+    ///
+    /// # Errors
+    ///
+    /// As the rule, and [`ApiError::ServiceUnavailable`].
+    pub fn item_ids_after(
+        &self,
+        partition: Partition,
+        after: Option<&ItemId>,
+    ) -> Result<Vec<ItemId>, ApiError> {
+        self.read(|rules| rules.item_ids_after(partition, after))?
+    }
+
+    /// `listItems`; [`Rules::items_after`].
+    ///
+    /// # Errors
+    ///
+    /// As the rule, and [`ApiError::ServiceUnavailable`].
+    pub fn items_after(
+        &self,
+        partition: Partition,
+        after: Option<&ItemId>,
+    ) -> Result<Vec<(ItemId, StoredItem)>, ApiError> {
+        self.read(|rules| rules.items_after(partition, after))?
+    }
+
+    /// `resolveItem`; [`Rules::resolve_item`].
+    ///
+    /// # Errors
+    ///
+    /// As the rule, and [`ApiError::ServiceUnavailable`].
+    pub fn resolve_item(&self, input: &str) -> Result<Resolved, ApiError> {
+        self.read(|rules| rules.resolve_item(input))?
+    }
+
+    /// `getItemContent` from an offset, for `Range`; [`Rules::item_content_from`].
+    ///
+    /// # Errors
+    ///
+    /// As the rule, and [`ApiError::ServiceUnavailable`].
+    pub fn item_content_from(
+        &self,
+        partition: Partition,
+        id: &ItemId,
+        offset: u64,
+    ) -> Result<Option<Content>, ApiError> {
+        self.read(|rules| rules.item_content_from(partition, id, offset))?
     }
 
     /// `getItemContent`; [`Rules::item_content`].
@@ -674,7 +825,7 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
     ///
     /// As the rule, and [`ApiError::ServiceUnavailable`].
     pub fn delete_item(
-        &mut self,
+        &self,
         caller: &Caller,
         partition: Partition,
         id: &ItemId,
@@ -689,7 +840,7 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
     ///
     /// As the rule, and [`ApiError::ServiceUnavailable`].
     pub fn enable_encryption(
-        &mut self,
+        &self,
         caller: &Caller,
         key_id: KeyId,
         header: Vec<u8>,
@@ -703,7 +854,7 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
     ///
     /// As the rule, and [`ApiError::ServiceUnavailable`].
     pub fn fresh_start(
-        &mut self,
+        &self,
         caller: &Caller,
         key_id: KeyId,
         header: Vec<u8>,
@@ -717,7 +868,7 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
     ///
     /// As the rule, and [`ApiError::ServiceUnavailable`].
     pub fn replace_header(
-        &mut self,
+        &self,
         caller: &Caller,
         expected: &KeyId,
         header: Vec<u8>,
@@ -730,11 +881,7 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
     /// # Errors
     ///
     /// As the rule, and [`ApiError::ServiceUnavailable`].
-    pub fn begin_upload(
-        &mut self,
-        caller: &Caller,
-        request: UploadRequest,
-    ) -> Result<Begun, ApiError> {
+    pub fn begin_upload(&self, caller: &Caller, request: UploadRequest) -> Result<Begun, ApiError> {
         self.write(|rules| rules.begin_upload(caller, request))
     }
 
@@ -744,7 +891,7 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
     ///
     /// As the rule, and [`ApiError::ServiceUnavailable`].
     pub fn commit_upload(
-        &mut self,
+        &self,
         caller: &Caller,
         upload: &UploadId,
     ) -> Result<PutOutcome, ApiError> {
@@ -756,7 +903,7 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
     /// # Errors
     ///
     /// As the rule, and [`ApiError::ServiceUnavailable`].
-    pub fn abort_upload(&mut self, caller: &Caller, upload: &UploadId) -> Result<(), ApiError> {
+    pub fn abort_upload(&self, caller: &Caller, upload: &UploadId) -> Result<(), ApiError> {
         self.write(|rules| rules.abort_upload(caller, upload))
     }
 
@@ -766,7 +913,7 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
     ///
     /// As the rule, and [`ApiError::ServiceUnavailable`].
     pub fn begin_rewrite(
-        &mut self,
+        &self,
         caller: &Caller,
         request: RewriteRequest,
     ) -> Result<SessionView, ApiError> {
@@ -778,7 +925,7 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
     /// # Errors
     ///
     /// As the rule, and [`ApiError::ServiceUnavailable`].
-    pub fn heartbeat_rewrite(&mut self, caller: &Caller) -> Result<SessionView, ApiError> {
+    pub fn heartbeat_rewrite(&self, caller: &Caller) -> Result<SessionView, ApiError> {
         self.write(|rules| rules.heartbeat_rewrite(caller))
     }
 
@@ -787,7 +934,7 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
     /// # Errors
     ///
     /// As the rule, and [`ApiError::ServiceUnavailable`].
-    pub fn take_over_rewrite(&mut self, caller: &Caller) -> Result<SessionView, ApiError> {
+    pub fn take_over_rewrite(&self, caller: &Caller) -> Result<SessionView, ApiError> {
         self.write(|rules| rules.take_over_rewrite(caller))
     }
 
@@ -797,7 +944,7 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
     ///
     /// As the rule, and [`ApiError::ServiceUnavailable`].
     pub fn commit_rewrite(
-        &mut self,
+        &self,
         caller: &Caller,
         new_key_id: &KeyId,
     ) -> Result<EncryptionView, ApiError> {
@@ -810,7 +957,7 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
     ///
     /// As the rule, and [`ApiError::ServiceUnavailable`].
     pub fn abort_rewrite(
-        &mut self,
+        &self,
         caller: &Caller,
         new_key_id: &KeyId,
     ) -> Result<EncryptionView, ApiError> {
@@ -823,8 +970,44 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
     /// # Errors
     ///
     /// As the rule, and [`ApiError::ServiceUnavailable`].
-    pub fn clean_staging(&mut self) -> Result<usize, ApiError> {
+    pub fn clean_staging(&self) -> Result<usize, ApiError> {
         self.write(|rules| rules.clean_staging())
+    }
+
+    /// [`Rules::upload_state`].
+    ///
+    /// # Errors
+    ///
+    /// As the rule, and [`ApiError::ServiceUnavailable`].
+    pub fn upload_state(
+        &self,
+        caller: &Caller,
+        upload: &UploadId,
+    ) -> Result<crate::upload::UploadState, ApiError> {
+        self.read(|rules| rules.upload_state(caller, upload))?
+    }
+
+    /// [`Rules::staged_item_content_from`].
+    ///
+    /// # Errors
+    ///
+    /// As the rule, and [`ApiError::ServiceUnavailable`].
+    pub fn staged_item_content_from(
+        &self,
+        caller: &Caller,
+        id: &ItemId,
+        offset: u64,
+    ) -> Result<Content, ApiError> {
+        self.read(|rules| rules.staged_item_content_from(caller, id, offset))?
+    }
+
+    /// `probeWrite`; [`Rules::probe_write`].
+    ///
+    /// # Errors
+    ///
+    /// As the rule, and [`ApiError::ServiceUnavailable`].
+    pub fn probe_write(&self, caller: &Caller) -> Result<(), ApiError> {
+        self.read(|rules| rules.probe_write(caller))?
     }
 
     /// `passalong-server rewrite abort`; [`Rules::operator_abort_rewrite`].
@@ -832,14 +1015,14 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
     /// # Errors
     ///
     /// As the rule, and [`ApiError::ServiceUnavailable`].
-    pub fn operator_abort_rewrite(&mut self, force: bool) -> Result<EncryptionView, ApiError> {
+    pub fn operator_abort_rewrite(&self, force: bool) -> Result<EncryptionView, ApiError> {
         self.write(|rules| rules.operator_abort_rewrite(force))
     }
 
     #[cfg(test)]
-    pub(crate) fn seed_for_tests(&mut self, id: &ItemId, content: &[u8], under: Option<KeyId>) {
+    pub(crate) fn seed_for_tests(&self, id: &ItemId, content: &[u8], under: Option<KeyId>) {
         self.write(|rules| {
-            let upload = UploadId::generate(rules.rng);
+            let upload = rules.new_upload_id();
             rules.shelf.stage_create(&upload)?;
             let mut bytes = content;
             rules
@@ -898,7 +1081,12 @@ pub(crate) mod tests {
             WorkspaceId::generate(&mut SeededRandom::new(1)),
             Arc::new(clock.clone()),
             Box::new(SeededRandom::new(42)),
-            Limits::default(),
+            Limits {
+                // These tests are about other rules and use made-up ids; the
+                // check has tests of its own in `upload.rs`.
+                check_plaintext_content: false,
+                ..Limits::default()
+            },
         )
         .unwrap();
         (engine, clock)
@@ -935,7 +1123,7 @@ pub(crate) mod tests {
 
     #[test]
     fn enabling_encryption_needs_an_empty_plaintext_workspace_and_a_writer() {
-        let (mut engine, _) = engine();
+        let (engine, _) = engine();
         let err = engine
             .enable_encryption(&ro("kiosk"), key("aa"), b"h".to_vec())
             .unwrap_err();
@@ -1058,7 +1246,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_fresh_start_of_an_empty_workspace_leaves_no_plain_partition() {
-        let (mut engine, _) = engine();
+        let (engine, _) = engine();
         engine
             .fresh_start(&rw("a"), key("aa"), b"h".to_vec())
             .unwrap();
@@ -1109,6 +1297,86 @@ pub(crate) mod tests {
                 .unwrap_err(),
             ApiError::NotFound
         );
+    }
+
+    #[test]
+    fn what_a_user_typed_resolves_to_one_item_by_the_clients_rules() {
+        let (mut engine, _) = engine();
+        seed(&mut engine, "6aa52107-2cf24dba5fb0", b"a");
+        seed(&mut engine, "6aa52108-2cf2ffffffff", b"b");
+        seed(&mut engine, "6aa52109-9999aaaabbbb", b"c");
+        let id = |text: &str| ItemId::parse(text).unwrap();
+        let resolve = |input: &str| engine.resolve_item(input).unwrap();
+
+        // Without a dash: a prefix of the content key.
+        assert_eq!(resolve("9999"), Resolved::Id(id("6aa52109-9999aaaabbbb")));
+        assert_eq!(resolve("2cf24"), Resolved::Id(id("6aa52107-2cf24dba5fb0")));
+        assert_eq!(
+            resolve("2cf2"),
+            Resolved::Ambiguous(vec![
+                id("6aa52108-2cf2ffffffff"),
+                id("6aa52107-2cf24dba5fb0")
+            ])
+        );
+        // With a dash: a prefix of the whole id.
+        assert_eq!(
+            resolve("6aa52108-"),
+            Resolved::Id(id("6aa52108-2cf2ffffffff"))
+        );
+        assert_eq!(
+            resolve("6aa5210"),
+            Resolved::NotFound,
+            "no dash, so a content key, and none starts so"
+        );
+        // Case and surrounding spaces are ignored.
+        assert_eq!(
+            resolve("  9999AAAA "),
+            Resolved::Id(id("6aa52109-9999aaaabbbb"))
+        );
+        assert_eq!(resolve("ffff"), Resolved::NotFound);
+        for bad in ["", "999", "zzzz", "99 99", "9999-9999-", "../9999"] {
+            assert_eq!(resolve(bad), Resolved::InvalidPrefix, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn items_newer_than_one_are_listed_newest_first() {
+        let (mut engine, _) = engine();
+        for text in [
+            "00000001-aaaaaaaaaaaa",
+            "00000002-bbbbbbbbbbbb",
+            "00000003-cccccccccccc",
+        ] {
+            seed(&mut engine, text, b"x");
+        }
+        let after = ItemId::parse("00000001-aaaaaaaaaaaa").unwrap();
+        let newer: Vec<String> = engine
+            .item_ids_after(Partition::Current, Some(&after))
+            .unwrap()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(newer, ["00000003-cccccccccccc", "00000002-bbbbbbbbbbbb"]);
+        assert_eq!(
+            engine
+                .item_ids_after(Partition::Current, None)
+                .unwrap()
+                .len(),
+            3
+        );
+        let newest = ItemId::parse("00000003-cccccccccccc").unwrap();
+        assert!(
+            engine
+                .item_ids_after(Partition::Current, Some(&newest))
+                .unwrap()
+                .is_empty()
+        );
+        let items = engine
+            .items_after(Partition::Current, Some(&after))
+            .unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].0.as_str(), "00000003-cccccccccccc");
+        assert_eq!(items[0].1.size, 1);
     }
 
     #[test]

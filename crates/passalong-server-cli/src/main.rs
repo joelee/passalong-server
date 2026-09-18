@@ -1,5 +1,5 @@
-//! `passalong-server`: the operator's commands, and later the daemon, in
-//! one binary. `docs/usage.md` is the manual.
+//! `passalong-server`: the operator's commands and the server, in one
+//! binary. `docs/usage.md` is the manual.
 //!
 //! What a command prints for the operator goes to standard output and is not
 //! a log; logs go to standard error (`AGENTS.md`, "Observability").
@@ -8,6 +8,7 @@ mod cli;
 mod commands;
 mod output;
 mod owner;
+mod serve;
 
 use std::process::ExitCode;
 
@@ -19,7 +20,7 @@ use commands::Host;
 
 fn later(what: &str) -> commands::Done {
     Err(format!(
-        "`{what}` is not in this build yet: it arrives with the HTTP slice of v0.1.0. See docs/backlog.md"
+        "`{what}` is not in this build yet: it arrives with the Docker and systemd slice of v0.1.0. See docs/backlog.md"
     ))
 }
 
@@ -30,6 +31,11 @@ fn run(cli: &Cli) -> commands::Done {
     let (config, file) =
         config::load(cli.config.as_deref(), &config::Process).map_err(|err| err.to_string())?;
     passalong_server_core::telemetry::init(config.server.log_level);
+    if let Commands::Check { health: true } = &cli.command {
+        // A probe: it asks over the network and touches nothing, so whoever
+        // may read the configuration may run it.
+        return serve::health(&config);
+    }
     let typed: Vec<String> = std::env::args().collect();
     owner::check(&config.server.data_dir, &typed.join(" "))?;
     let host = Host {
@@ -41,9 +47,9 @@ fn run(cli: &Cli) -> commands::Done {
         Commands::Workspace(command) => commands::workspace(&host, command),
         Commands::Key(command) => commands::key(&host, command),
         Commands::Rewrite(command) => commands::rewrite(&host, command),
-        Commands::Check => commands::check(&host, &file),
-        Commands::Serve => later("serve"),
-        Commands::Tls { .. } => later("tls"),
+        Commands::Check { .. } => commands::check(&host, &file),
+        Commands::Serve => serve::serve(host.config),
+        Commands::Tls(command) => commands::tls(&host, command),
         Commands::Service { .. } => later("service"),
     }
 }

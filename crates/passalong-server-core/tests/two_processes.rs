@@ -48,7 +48,11 @@ fn three_uploaders_and_a_rewriter_share_one_workspace() {
         WorkspaceId::parse("00000000000000aa").unwrap(),
         Arc::new(ManualClock::at(1_000)),
         Box::new(SeededRandom::new(1)),
-        Limits::default(),
+        Limits {
+            // Made-up ids: the content check has tests of its own.
+            check_plaintext_content: false,
+            ..Limits::default()
+        },
     )
     .unwrap();
     assert_eq!(

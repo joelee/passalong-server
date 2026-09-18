@@ -74,6 +74,26 @@ pub trait ItemShelf {
         announced: u64,
     ) -> Result<u64, ApiError>;
 
+    /// As [`ItemShelf::stage_write`], and remembers the SHA-256 of what was
+    /// written, for [`ItemShelf::stage_digest`]. For plaintext workspaces,
+    /// where the server checks content against its `meta`: hashing while the
+    /// content arrives costs no second pass over it.
+    ///
+    /// # Errors
+    ///
+    /// As [`ItemShelf::stage_write`].
+    fn stage_write_hashed(
+        &self,
+        upload: &UploadId,
+        content: &mut dyn Read,
+        announced: u64,
+    ) -> Result<u64, ApiError>;
+
+    /// The SHA-256 the last [`ItemShelf::stage_write_hashed`] remembered;
+    /// `None` when nothing is staged, or it was last written unhashed. It is
+    /// the server's note, and never becomes part of the item.
+    fn stage_digest(&self, upload: &UploadId) -> Result<Option<[u8; 32]>, ApiError>;
+
     /// The staged content's size, or `None` when nothing is staged.
     fn stage_size(&self, upload: &UploadId) -> Result<Option<u64>, ApiError>;
 
@@ -102,7 +122,18 @@ pub trait ItemShelf {
     fn get(&self, generation: u64, id: &ItemId) -> Result<Option<StoredItem>, ApiError>;
 
     /// One item's content, from its first byte.
-    fn open_content(&self, generation: u64, id: &ItemId) -> Result<Option<Content>, ApiError>;
+    fn open_content(&self, generation: u64, id: &ItemId) -> Result<Option<Content>, ApiError> {
+        self.open_content_from(generation, id, 0)
+    }
+
+    /// One item's content from `offset` on, for `Range` requests; nothing
+    /// when `offset` is at or past its end.
+    fn open_content_from(
+        &self,
+        generation: u64,
+        id: &ItemId,
+        offset: u64,
+    ) -> Result<Option<Content>, ApiError>;
 
     /// A generation's ids, newest first.
     fn ids(&self, generation: u64) -> Result<Vec<ItemId>, ApiError>;
@@ -134,6 +165,17 @@ impl<S: ItemShelf + ?Sized> ItemShelf for std::sync::Arc<S> {
     ) -> Result<u64, ApiError> {
         (**self).stage_write(upload, content, announced)
     }
+    fn stage_write_hashed(
+        &self,
+        upload: &UploadId,
+        content: &mut dyn Read,
+        announced: u64,
+    ) -> Result<u64, ApiError> {
+        (**self).stage_write_hashed(upload, content, announced)
+    }
+    fn stage_digest(&self, upload: &UploadId) -> Result<Option<[u8; 32]>, ApiError> {
+        (**self).stage_digest(upload)
+    }
     fn stage_size(&self, upload: &UploadId) -> Result<Option<u64>, ApiError> {
         (**self).stage_size(upload)
     }
@@ -155,8 +197,13 @@ impl<S: ItemShelf + ?Sized> ItemShelf for std::sync::Arc<S> {
     fn get(&self, generation: u64, id: &ItemId) -> Result<Option<StoredItem>, ApiError> {
         (**self).get(generation, id)
     }
-    fn open_content(&self, generation: u64, id: &ItemId) -> Result<Option<Content>, ApiError> {
-        (**self).open_content(generation, id)
+    fn open_content_from(
+        &self,
+        generation: u64,
+        id: &ItemId,
+        offset: u64,
+    ) -> Result<Option<Content>, ApiError> {
+        (**self).open_content_from(generation, id, offset)
     }
     fn ids(&self, generation: u64) -> Result<Vec<ItemId>, ApiError> {
         (**self).ids(generation)
@@ -180,6 +227,7 @@ impl<S: ItemShelf + ?Sized> ItemShelf for std::sync::Arc<S> {
 pub(crate) fn pump(
     content: &mut dyn Read,
     announced: u64,
+    mut hasher: Option<&mut sha2::Sha256>,
     mut sink: impl FnMut(&[u8]) -> Result<(), ApiError>,
 ) -> Result<u64, ApiError> {
     let mut piece = vec![0_u8; CHUNK_BYTES];
@@ -198,6 +246,9 @@ pub(crate) fn pump(
         total += n as u64;
         if total > announced {
             return Err(ApiError::ContentMismatch);
+        }
+        if let Some(hasher) = hasher.as_deref_mut() {
+            sha2::Digest::update(hasher, &piece[..n]);
         }
         sink(&piece[..n])?;
     }

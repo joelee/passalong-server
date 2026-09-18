@@ -31,6 +31,7 @@ pub mod auth;
 pub mod clock;
 pub mod config;
 pub mod control;
+pub mod engines;
 pub mod error;
 pub mod fault;
 pub mod ids;

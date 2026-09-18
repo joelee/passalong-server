@@ -91,6 +91,8 @@ pub struct Authenticated {
     pub caller: Caller,
     /// When the key expires, for `getViewer` and the client's warning.
     pub expires_at: Option<u64>,
+    /// What the operator called the key.
+    pub label: String,
 }
 
 /// One line of the audit trail.
@@ -258,6 +260,21 @@ impl Control {
         .map_err(sql("write the audit trail"))
     }
 
+    /// Whether the database answers, for `readyz`: it reads what every
+    /// request's authentication reads.
+    ///
+    /// # Errors
+    ///
+    /// [`ControlError::Unavailable`].
+    pub fn ready(&self) -> Result<(), ControlError> {
+        self.lock()
+            .query_row("SELECT count(*) FROM api_keys", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map(|_| ())
+            .map_err(sql("check readiness"))
+    }
+
     /// `workspace create`.
     ///
     /// # Errors
@@ -345,6 +362,22 @@ impl Control {
             .optional()
             .map_err(sql("find a workspace"))?
             .ok_or_else(|| ControlError::NoSuchWorkspace(name.to_owned()))
+    }
+
+    /// One workspace, by id: what an engine is opened from.
+    ///
+    /// # Errors
+    ///
+    /// [`ControlError::Unavailable`].
+    pub fn workspace_by_id(&self, id: &WorkspaceId) -> Result<Option<WorkspaceInfo>, ControlError> {
+        self.lock()
+            .query_row(
+                "SELECT id, name, quota_bytes, created_at FROM workspaces WHERE id = ?1",
+                [id.as_str()],
+                workspace_from,
+            )
+            .optional()
+            .map_err(sql("find a workspace"))
     }
 
     /// `workspace delete`: the rows, keys and record included, in one
@@ -623,12 +656,23 @@ impl Control {
             Option<i64>,
             Option<i64>,
             Option<i64>,
+            String,
         );
         let row: Option<Found> = connection
             .query_row(
-                "SELECT secret_hash, workspace, role, expires_at, revoked_at, last_used_at FROM api_keys WHERE key_id = ?1",
+                "SELECT secret_hash, workspace, role, expires_at, revoked_at, last_used_at, label FROM api_keys WHERE key_id = ?1",
                 [presented.id().as_str()],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                    ))
+                },
             )
             .optional()
             .map_err(unavailable)?;
@@ -637,7 +681,7 @@ impl Control {
             .and_then(|found| SecretHash::from_bytes(&found.0))
             .unwrap_or_else(SecretHash::of_nothing);
         let right = stored.matches(&presented.hash());
-        let Some((_, workspace, role, expires_at, revoked_at, last_used_at)) =
+        let Some((_, workspace, role, expires_at, revoked_at, last_used_at, label)) =
             row.filter(|_| right)
         else {
             return Err(ApiError::Unauthenticated);
@@ -671,6 +715,7 @@ impl Control {
                 },
             ),
             expires_at: from_db(expires_at),
+            label,
         })
     }
 }

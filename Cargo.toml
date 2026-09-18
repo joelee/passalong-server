@@ -25,15 +25,31 @@ homepage = "https://github.com/joelee/passalong-server"
 passalong-server-core = { path = "crates/passalong-server-core", version = "=0.1.0" }
 passalong-server-api = { path = "crates/passalong-server-api", version = "=0.1.0" }
 
+# HTTP/1.1 only in v0.1 (PLAN-00004 D-02); no default features.
+axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "matched-path", "query", "tokio"] }
 clap = { version = "4.6.7", features = ["derive"] }
-getrandom = "0.4.3"
+# 0.2, not the newest: `ring`, which rustls needs, uses 0.2, and two versions
+# of one crate fail the audit. This repository calls it in one place.
+getrandom = "0.2.17"
+hyper = { version = "1.11.1", features = ["http1", "server"] }
+hyper-util = { version = "0.1.20", features = ["tokio", "server", "http1"] }
+# `tls self-signed`.
+# Already in the tree, by way of `rcgen`'s PEM writer.
+base64 = { version = "0.23.1", default-features = false, features = ["alloc"] }
+rcgen = { version = "0.14.10", default-features = false, features = ["ring", "pem"] }
 # SQLite compiled in, so the image and a systemd host need no system library.
 rusqlite = { version = "0.40.2", features = ["bundled"] }
+# `ring`, as the passalong client chose: no cmake, no C++ toolchain.
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-pki-types = { version = "1.15.1", features = ["std"] }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
+# `raw_value`: an item's `meta` goes in and out as the bytes the client sent.
+serde_json = { version = "1.0.151", features = ["raw_value"] }
 sha2 = "0.11.0"
 # Constant-time comparison of key hashes.
 subtle = "2.6.1"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "signal", "time", "io-util", "sync"] }
+tokio-rustls = { version = "0.26.5", default-features = false, features = ["ring", "tls12", "logging"] }
 toml = "1.1.6"
 # Without `attributes`: `#[instrument]` would bring a second version of `syn`.
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }

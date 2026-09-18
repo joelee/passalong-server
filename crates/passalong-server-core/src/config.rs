@@ -238,6 +238,7 @@ impl Config {
             max_item_bytes: self.limits.max_item_bytes,
             staging_secs: self.staging.max_age_hours.saturating_mul(3_600),
             lease_secs: self.rewrite.lease_secs,
+            check_plaintext_content: true,
         }
     }
 }
@@ -420,13 +421,20 @@ pub fn load(
     Ok((parse(&text, &path, env)?, path))
 }
 
-/// The file `init` writes: the sample, with `data_dir` filled in.
-pub fn initial_file(data_dir: &Path) -> String {
+/// The file `init` writes: the sample, with `data_dir` filled in, and the
+/// TLS pair expected in `tls/` beside the file itself, where whoever runs
+/// `init` can write it.
+pub fn initial_file(data_dir: &Path, config_dir: &Path) -> String {
+    let quoted = |path: &Path| format!("{:?}", path.display().to_string());
     SAMPLE
         .lines()
         .map(|line| {
             if line.starts_with("data_dir = ") {
-                format!("data_dir = {:?}", data_dir.display().to_string())
+                format!("data_dir = {}", quoted(data_dir))
+            } else if line.starts_with("cert_file = ") {
+                format!("cert_file = {}", quoted(&config_dir.join("tls/cert.pem")))
+            } else if line.starts_with("key_file = ") {
+                format!("key_file = {}", quoted(&config_dir.join("tls/key.pem")))
             } else {
                 line.to_owned()
             }
@@ -709,9 +717,16 @@ mod tests {
 
     #[test]
     fn init_writes_a_file_that_names_the_data_directory_it_was_given() {
-        let text = initial_file(Path::new("/srv/pass"));
+        let text = initial_file(Path::new("/srv/pass"), Path::new("/home/me/.config/pass"));
         let config = parse(&text, Path::new("/c.toml"), &Fake::default()).unwrap();
         assert_eq!(config.server.data_dir, Path::new("/srv/pass"));
+        // The pair is expected where whoever ran `init` can write it.
+        let tls = config.tls.unwrap();
+        assert_eq!(
+            tls.cert_file,
+            Path::new("/home/me/.config/pass/tls/cert.pem")
+        );
+        assert_eq!(tls.key_file, Path::new("/home/me/.config/pass/tls/key.pem"));
         assert!(
             text.lines().filter(|line| line.starts_with('#')).count() > 10,
             "it explains itself"

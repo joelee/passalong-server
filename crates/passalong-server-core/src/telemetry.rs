@@ -29,6 +29,7 @@ pub use crate::config::LogLevel;
 pub const ALLOWED_FIELDS: &[&str] = &[
     "message",
     "action",
+    "address",
     "cleanup",
     "err",
     "forced",
@@ -38,9 +39,15 @@ pub const ALLOWED_FIELDS: &[&str] = &[
     "holder",
     "item",
     "key",
+    "method",
+    "mode",
+    "ms",
+    "operation",
     "path",
+    "request",
     "schema",
     "staging_places_removed",
+    "status",
     "to",
     "upload",
     "workspace",
@@ -198,6 +205,10 @@ mod tests {
             "src/upload.rs",
             "src/rewrite.rs",
             "src/workspace.rs",
+            // The crates above this one log through the same formatter.
+            "../passalong-server-api/src/server.rs",
+            "../passalong-server-api/src/tls.rs",
+            "../passalong-server-cli/src/serve.rs",
         ] {
             let text = std::fs::read_to_string(
                 std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(file),

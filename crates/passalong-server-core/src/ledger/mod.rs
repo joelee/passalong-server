@@ -171,6 +171,7 @@ mod tests {
                 outcome: PutOutcome {
                     id: ItemId::parse("00000009-bbbbbbbbbbbb").unwrap(),
                     created: true,
+                    staged: true,
                 },
                 expires_at: 99_999,
             },
@@ -379,9 +380,36 @@ mod tests {
         )
         .unwrap();
         let tx = raw.transaction().unwrap();
-        // Version 1 stored a record with the statements that still do.
-        super::sqlite::write_for_tests(&tx, workspace, record);
+        // Version 1 stored a record with the statements that still do, all
+        // but the remembered outcomes, which did not yet say `staged`.
+        let mut rest = record.clone();
+        let stones = std::mem::take(&mut rest.uploads.tombstones);
+        super::sqlite::write_for_tests(&tx, workspace, &rest);
+        for (upload, stone) in &stones {
+            tx.execute(
+                "INSERT INTO tombstones (workspace, upload_id, owner, item_id, created, expires_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![
+                    workspace.as_str(),
+                    upload.as_str(),
+                    stone.owner.as_str(),
+                    stone.outcome.id.as_str(),
+                    stone.outcome.created,
+                    i64::try_from(stone.expires_at).unwrap(),
+                ],
+            )
+            .unwrap();
+        }
         tx.commit().unwrap();
+    }
+
+    /// `record` as a database from before version 3 gives it back: no
+    /// outcome was known to be staged.
+    fn before_staged(mut record: WorkspaceRecord) -> WorkspaceRecord {
+        for stone in record.uploads.tombstones.values_mut() {
+            stone.outcome.staged = false;
+        }
+        record
     }
 
     fn version_of(path: &std::path::Path) -> i64 {
@@ -409,7 +437,8 @@ mod tests {
         let ledger = SqliteLedger::open(&path, TIMEOUT).unwrap();
         assert_eq!(version_of(&path), super::sqlite::SCHEMA_VERSION);
         const { assert!(super::sqlite::SCHEMA_VERSION >= 2) };
-        assert_eq!(ledger.load(&a).unwrap(), full_record());
+        const { assert!(super::sqlite::SCHEMA_VERSION >= 3) };
+        assert_eq!(ledger.load(&a).unwrap(), before_staged(full_record()));
         assert_eq!(ledger.load(&b).unwrap(), WorkspaceRecord::default());
         // A workspace that had no name gets its id as one.
         let raw = rusqlite::Connection::open(&path).unwrap();
@@ -482,7 +511,7 @@ mod tests {
                 .unwrap()
                 .load(&a)
                 .unwrap(),
-            full_record()
+            before_staged(full_record())
         );
     }
 

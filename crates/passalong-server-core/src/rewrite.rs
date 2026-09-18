@@ -111,9 +111,23 @@ impl<S: ItemShelf> Rules<'_, S> {
     ///
     /// As [`Rules::staged_item`].
     pub fn staged_item_content(&self, caller: &Caller, id: &ItemId) -> Result<Content, ApiError> {
+        self.staged_item_content_from(caller, id, 0)
+    }
+
+    /// The same from `offset` on, for `Range`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Rules::staged_item`].
+    pub fn staged_item_content_from(
+        &self,
+        caller: &Caller,
+        id: &ItemId,
+        offset: u64,
+    ) -> Result<Content, ApiError> {
         let session = self.held_session(caller)?;
         self.shelf
-            .open_content(session.staged_generation, id)?
+            .open_content_from(session.staged_generation, id, offset)?
             .ok_or(ApiError::NotFound)
     }
 
@@ -386,6 +400,25 @@ mod tests {
         }
     }
 
+    #[test]
+    fn an_outcome_says_whether_its_item_is_staged() {
+        // A rewrite may stage an item under the id its source has. Whoever
+        // answers the client must know which of the two the upload made,
+        // also when the commit is sent again.
+        let (mut engine, _) = engine();
+        seed(&mut engine, "00000001-aaaaaaaaaaaa", b"plain");
+        engine.begin_rewrite(&rw("a"), migrate("bb")).unwrap();
+        let outcome = stage(&mut engine, "a", "00000001-aaaaaaaaaaaa", "bb", b"sealed");
+        assert!(outcome.staged && outcome.created);
+        let mut again = request("00000001-aaaaaaaaaaaa", 6);
+        again.expected_key_id = Some(key("bb"));
+        again.in_rewrite = true;
+        match engine.begin_upload(&rw("a"), again).unwrap() {
+            Begun::Stored(stored) => assert!(stored.staged && !stored.created),
+            Begun::Ticket(_) => panic!("it is staged already"),
+        }
+    }
+
     /// Stages one item of the open rewrite, as its holder.
     fn stage(
         engine: &mut Engine<MemoryShelf>,
@@ -413,7 +446,7 @@ mod tests {
 
     #[test]
     fn a_migration_begins_only_on_plaintext_and_a_rotation_only_under_the_current_key() {
-        let (mut engine, _) = engine();
+        let (engine, _) = engine();
         assert_eq!(
             engine.begin_rewrite(&ro("k"), migrate("bb")).unwrap_err(),
             ApiError::ForbiddenRole
@@ -518,7 +551,7 @@ mod tests {
 
     #[test]
     fn beginning_again_answers_the_live_session() {
-        let (mut engine, clock) = engine();
+        let (engine, clock) = engine();
         let first = engine.begin_rewrite(&rw("a"), migrate("bb")).unwrap();
         clock.advance(10);
         let again = engine.begin_rewrite(&rw("a"), migrate("bb")).unwrap();
@@ -528,7 +561,7 @@ mod tests {
 
     #[test]
     fn only_the_holder_stages_and_only_under_the_new_key() {
-        let (mut engine, _) = engine();
+        let (engine, _) = engine();
         let mut req = request("00000001-cccccccccccc", 1);
         req.in_rewrite = true;
         req.expected_key_id = Some(key("bb"));
@@ -826,7 +859,7 @@ mod tests {
         // nobody holds would shut every writer out until someone recovered
         // it. The client makes a fresh data key for every attempt, so the
         // new key id tells the duplicate from a new attempt.
-        let (mut engine, clock) = engine();
+        let (engine, clock) = engine();
         engine.begin_rewrite(&rw("a"), migrate("bb")).unwrap();
         engine.abort_rewrite(&rw("a"), &key("bb")).unwrap();
         assert_eq!(
@@ -853,7 +886,7 @@ mod tests {
 
     #[test]
     fn the_lease_is_renewed_by_the_holder_and_taken_over_only_once_it_ended() {
-        let (mut engine, clock) = engine();
+        let (engine, clock) = engine();
         let lease = Limits::default().lease_secs;
         assert_eq!(
             engine.heartbeat_rewrite(&rw("a")).unwrap_err(),
@@ -975,7 +1008,7 @@ mod tests {
 
     #[test]
     fn an_upload_staged_by_a_former_holder_cannot_commit() {
-        let (mut engine, clock) = engine();
+        let (engine, clock) = engine();
         engine.begin_rewrite(&rw("a"), migrate("bb")).unwrap();
         let mut req = request("00000001-cccccccccccc", 1);
         req.expected_key_id = Some(key("bb"));

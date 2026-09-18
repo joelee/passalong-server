@@ -48,6 +48,19 @@ pub struct PutOutcome {
     pub id: ItemId,
     /// `false` when identical content was already stored.
     pub created: bool,
+    /// Whether the item is one of an open rewrite's next generation, and not
+    /// of the workspace's items. A rewrite may stage an item under the id
+    /// its source has, so the id alone does not say which was meant.
+    pub staged: bool,
+}
+
+/// What `putUploadContent` needs to know before it reads a byte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UploadState {
+    /// Content is awaited, of exactly this size.
+    Awaiting(u64),
+    /// Committed already: content sent now is acknowledged and discarded.
+    Finished,
 }
 
 /// `beginUpload`'s answer.
@@ -172,7 +185,11 @@ impl<S: ItemShelf> Rules<'_, S> {
                 self.rec.uploads.tickets.remove(&upload);
                 self.after.push(Cleanup::RemoveStaging(upload));
             }
-            return Ok(Begun::Stored(PutOutcome { id, created: false }));
+            return Ok(Begun::Stored(PutOutcome {
+                id,
+                created: false,
+                staged: request.in_rewrite,
+            }));
         }
         let now = self.clock.now();
         let live = self.rec.uploads.tickets.iter().find(|(_, ticket)| {
@@ -204,7 +221,7 @@ impl<S: ItemShelf> Rules<'_, S> {
         // once; the kill harness, whose source repeats itself, found that it
         // must exist.
         let upload_id = loop {
-            let candidate = UploadId::generate(&mut *self.rng);
+            let candidate = self.new_upload_id();
             let known = self.rec.uploads.tickets.contains_key(&candidate)
                 || self.rec.uploads.tombstones.contains_key(&candidate);
             if !known {
@@ -227,6 +244,41 @@ impl<S: ItemShelf> Rules<'_, S> {
         }))
     }
 
+    /// Whether this upload's content is checked against its `meta`: only
+    /// plaintext, which is what an upload under no key is. Sealed content
+    /// and sealed `meta` are the client's business; the server cannot open
+    /// either, and does not try.
+    fn checks_content(&self, request: &UploadRequest) -> bool {
+        self.limits.check_plaintext_content && request.expected_key_id.is_none()
+    }
+
+    /// The one look the server takes inside `meta`: in a plaintext
+    /// workspace, the content's SHA-256 and size are what `meta` says, and
+    /// the id's content key is the start of that SHA-256, as the client's
+    /// item schema defines it. What is read here is not returned or logged.
+    fn check_plaintext(&self, upload: &UploadId, request: &UploadRequest) -> Result<(), ApiError> {
+        let meta: serde_json::Value =
+            serde_json::from_slice(&request.meta).map_err(|_| ApiError::ContentMismatch)?;
+        let said_sha = meta.get("sha256").and_then(serde_json::Value::as_str);
+        let said_size = meta.get("size").and_then(serde_json::Value::as_u64);
+        let digest = self.shelf.stage_digest(upload)?;
+        let sha: Option<String> =
+            digest.map(|bytes| bytes.iter().map(|b| format!("{b:02x}")).collect());
+        let honest = match (&sha, said_sha, said_size) {
+            (Some(sha), Some(said_sha), Some(said_size)) => {
+                sha == said_sha
+                    && said_size == request.size
+                    && request.id.content_key() == &sha[..12]
+            }
+            _ => false,
+        };
+        if honest {
+            Ok(())
+        } else {
+            Err(ApiError::ContentMismatch)
+        }
+    }
+
     fn live_ticket(&self, caller: &Caller, upload: &UploadId) -> Option<&Ticket> {
         self.rec
             .uploads
@@ -241,6 +293,25 @@ impl<S: ItemShelf> Rules<'_, S> {
             .tombstones
             .get(upload)
             .filter(|stone| stone.owner == caller.key && stone.expires_at > self.clock.now())
+    }
+
+    /// Whether an upload awaits content, and how much: what the HTTP layer
+    /// compares `Content-Length` with, before reading the body.
+    ///
+    /// # Errors
+    ///
+    /// [`ApiError::NotFound`], as [`Rules::put_upload_content`].
+    pub fn upload_state(
+        &self,
+        caller: &Caller,
+        upload: &UploadId,
+    ) -> Result<UploadState, ApiError> {
+        if self.tombstone(caller, upload).is_some() {
+            return Ok(UploadState::Finished);
+        }
+        self.live_ticket(caller, upload)
+            .map(|ticket| UploadState::Awaiting(ticket.request.size))
+            .ok_or(ApiError::NotFound)
     }
 
     /// `putUploadContent`. Before the commit it replaces what was sent
@@ -259,14 +330,15 @@ impl<S: ItemShelf> Rules<'_, S> {
         if self.tombstone(caller, upload).is_some() {
             return Ok(());
         }
-        let announced = self
-            .live_ticket(caller, upload)
-            .ok_or(ApiError::NotFound)?
-            .request
-            .size;
-        self.shelf
-            .stage_write(upload, content, announced)
-            .map(|_| ())
+        let ticket = self.live_ticket(caller, upload).ok_or(ApiError::NotFound)?;
+        let announced = ticket.request.size;
+        let checked = self.checks_content(&ticket.request);
+        let written = if checked {
+            self.shelf.stage_write_hashed(upload, content, announced)
+        } else {
+            self.shelf.stage_write(upload, content, announced)
+        };
+        written.map(|_| ())
     }
 
     /// `commitUpload`: checks, deduplicates, and publishes, all under the
@@ -306,15 +378,18 @@ impl<S: ItemShelf> Rules<'_, S> {
                 let bytes = self.shelf.bytes(generation)?;
                 self.rec.used.insert(generation, bytes);
                 tracing::warn!(target: "passalong_server::upload", item = %ticket.request.id, upload = %upload.as_str(), "finished a publish that was never recorded");
-                return Ok(self.finish_upload(upload, ticket.owner, ticket.request.id, true));
+                return Ok(self.finish_upload(upload, &ticket, ticket.request.id.clone(), true));
             }
         }
         if staged != Some(ticket.request.size) {
             return Err(ApiError::ContentMismatch);
         }
+        if self.checks_content(&ticket.request) {
+            self.check_plaintext(upload, &ticket.request)?;
+        }
         let existing = find_in(self.shelf, generation, ticket.request.id.content_key())?;
         let outcome = match existing {
-            Some(id) => PutOutcome { id, created: false },
+            Some(id) => (id, false),
             None => {
                 let envelope = Envelope {
                     meta: ticket.request.meta.clone(),
@@ -325,13 +400,10 @@ impl<S: ItemShelf> Rules<'_, S> {
                     .publish(upload, generation, &ticket.request.id, envelope)?;
                 crate::fault::point("upload: after the publish");
                 self.add_used(generation, ticket.request.size);
-                PutOutcome {
-                    id: ticket.request.id.clone(),
-                    created: true,
-                }
+                (ticket.request.id.clone(), true)
             }
         };
-        Ok(self.finish_upload(upload, ticket.owner, outcome.id, outcome.created))
+        Ok(self.finish_upload(upload, &ticket, outcome.0, outcome.1))
     }
 
     /// Records an upload's outcome: the ticket goes, the outcome stays for
@@ -341,17 +413,21 @@ impl<S: ItemShelf> Rules<'_, S> {
     fn finish_upload(
         &mut self,
         upload: &UploadId,
-        owner: ApiKeyId,
+        ticket: &Ticket,
         id: ItemId,
         created: bool,
     ) -> PutOutcome {
-        let outcome = PutOutcome { id, created };
+        let outcome = PutOutcome {
+            id,
+            created,
+            staged: ticket.request.in_rewrite,
+        };
         self.after.push(Cleanup::RemoveStaging(upload.clone()));
         self.rec.uploads.tickets.remove(upload);
         self.rec.uploads.tombstones.insert(
             upload.clone(),
             Tombstone {
-                owner,
+                owner: ticket.owner.clone(),
                 outcome: outcome.clone(),
                 expires_at: self.clock.now() + self.limits.staging_secs,
             },
@@ -377,6 +453,24 @@ impl<S: ItemShelf> Rules<'_, S> {
             self.after.push(Cleanup::RemoveStaging(upload.clone()));
         }
         Ok(())
+    }
+
+    /// `probeWrite`: whether this key could store an item now, without
+    /// storing one. It checks the role, that no rewrite is open, and that a
+    /// staging place can be made and removed.
+    ///
+    /// # Errors
+    ///
+    /// [`ApiError::ForbiddenRole`], [`ApiError::RewriteInProgress`],
+    /// [`ApiError::ServiceUnavailable`].
+    pub fn probe_write(&mut self, caller: &Caller) -> Result<(), ApiError> {
+        caller.must_write()?;
+        if matches!(self.rec.state, crate::workspace::State::Rewriting(_)) {
+            return Err(ApiError::RewriteInProgress);
+        }
+        let probe = self.new_upload_id();
+        self.shelf.stage_create(&probe)?;
+        self.shelf.stage_remove(&probe)
     }
 
     /// Drops the uploads of a rewrite that ended.
@@ -483,7 +577,7 @@ pub(crate) mod tests {
 
     #[test]
     fn an_upload_is_begun_filled_and_committed() {
-        let (mut engine, clock) = engine();
+        let (engine, clock) = engine();
         let t = ticket(engine.begin_upload(&rw("a"), request(A, 5)).unwrap());
         assert_eq!(t.expires_at, 1_000 + Limits::default().staging_secs);
         assert_eq!(engine.reserved_bytes().unwrap(), 5);
@@ -502,7 +596,8 @@ pub(crate) mod tests {
             outcome,
             PutOutcome {
                 id: ItemId::parse(A).unwrap(),
-                created: true
+                created: true,
+                staged: false,
             }
         );
 
@@ -527,7 +622,7 @@ pub(crate) mod tests {
 
     #[test]
     fn pending_uploads_are_counted_until_they_finish() {
-        let (mut engine, _) = engine();
+        let (engine, _) = engine();
         let t = ticket(engine.begin_upload(&rw("a"), request(A, 1)).unwrap());
         assert_eq!(engine.pending_uploads().unwrap(), 1);
         engine
@@ -543,7 +638,7 @@ pub(crate) mod tests {
 
     #[test]
     fn beginning_again_returns_the_same_ticket_and_reserves_nothing_more() {
-        let (mut engine, _) = engine();
+        let (engine, _) = engine();
         let first = ticket(engine.begin_upload(&rw("a"), request(A, 5)).unwrap());
         let again = ticket(engine.begin_upload(&rw("a"), request(A, 5)).unwrap());
         assert_eq!(first, again);
@@ -556,7 +651,7 @@ pub(crate) mod tests {
 
     #[test]
     fn content_can_be_sent_again_until_the_commit_and_is_ignored_after() {
-        let (mut engine, _) = engine();
+        let (engine, _) = engine();
         let t = ticket(engine.begin_upload(&rw("a"), request(A, 2)).unwrap());
         engine
             .put_upload_content(
@@ -587,7 +682,7 @@ pub(crate) mod tests {
 
     #[test]
     fn committing_again_returns_the_same_outcome_until_it_is_forgotten() {
-        let (mut engine, clock) = engine();
+        let (engine, clock) = engine();
         let t = ticket(engine.begin_upload(&rw("a"), request(A, 1)).unwrap());
         engine
             .put_upload_content(
@@ -618,7 +713,7 @@ pub(crate) mod tests {
 
     #[test]
     fn the_same_content_is_stored_once_whichever_upload_commits_first() {
-        let (mut engine, _) = engine();
+        let (engine, _) = engine();
         let one = ticket(
             engine
                 .begin_upload(&rw("a"), request("00000001-aaaaaaaaaaaa", 1))
@@ -650,7 +745,8 @@ pub(crate) mod tests {
             first,
             PutOutcome {
                 id: second.id.clone(),
-                created: false
+                created: false,
+                staged: false,
             }
         );
         assert_eq!(
@@ -675,7 +771,8 @@ pub(crate) mod tests {
                 outcome,
                 PutOutcome {
                     id: second.id,
-                    created: false
+                    created: false,
+                    staged: false,
                 }
             ),
             Begun::Ticket(_) => panic!("stored content was given a ticket"),
@@ -688,7 +785,7 @@ pub(crate) mod tests {
         // while a rewrite was open began again, was told that someone else
         // had stored the content meanwhile, and left its first ticket
         // behind, holding quota until it expired.
-        let (mut engine, _) = engine();
+        let (engine, _) = engine();
         let mine = ticket(
             engine
                 .begin_upload(&rw("a"), request("00000001-aaaaaaaaaaaa", 1))
@@ -737,9 +834,149 @@ pub(crate) mod tests {
         );
     }
 
+    /// A plaintext upload as the client makes it: the id's content key is
+    /// the start of the content's SHA-256, and `meta` names both.
+    fn honest(content: &[u8], ts: &str) -> UploadRequest {
+        use sha2::{Digest, Sha256};
+        let sha: String = Sha256::digest(content)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        UploadRequest {
+            id: ItemId::parse(&format!("{ts}-{}", &sha[..12])).unwrap(),
+            meta: format!(
+                r#"{{"schema":1,"kind":"text","sha256":"{sha}","size":{}}}"#,
+                content.len()
+            )
+            .into_bytes(),
+            size: content.len() as u64,
+            expected_key_id: None,
+            in_rewrite: false,
+        }
+    }
+
+    fn upload(
+        engine: &mut crate::workspace::Engine<crate::shelf::MemoryShelf>,
+        request: UploadRequest,
+        content: &[u8],
+    ) -> Result<PutOutcome, ApiError> {
+        let t = ticket(engine.begin_upload(&rw("a"), request)?);
+        engine.put_upload_content(
+            &rw("a"),
+            &t.upload_id,
+            &mut std::io::Cursor::new(content.to_vec()),
+        )?;
+        engine.commit_upload(&rw("a"), &t.upload_id)
+    }
+
+    #[test]
+    fn in_a_plaintext_workspace_the_content_must_be_what_meta_and_the_id_say() {
+        let (mut engine, _) = engine();
+        engine.limits.check_plaintext_content = true;
+        assert!(
+            upload(&mut engine, honest(b"hello", "00000001"), b"hello")
+                .unwrap()
+                .created
+        );
+
+        // Other content of the same length.
+        let lie = honest(b"world", "00000002");
+        assert_eq!(
+            upload(&mut engine, lie.clone(), b"w0rld").unwrap_err(),
+            ApiError::ContentMismatch
+        );
+        // The upload can be repeated with the right content.
+        assert!(upload(&mut engine, lie, b"world").unwrap().created);
+
+        // An id whose content key is not the content's.
+        let mut wrong_id = honest(b"third", "00000003");
+        wrong_id.id = ItemId::parse("00000003-aaaaaaaaaaaa").unwrap();
+        assert_eq!(
+            upload(&mut engine, wrong_id, b"third").unwrap_err(),
+            ApiError::ContentMismatch
+        );
+        // A size in `meta` that is not the content's.
+        let mut wrong_size = honest(b"fourth", "00000004");
+        wrong_size.meta = String::from_utf8(wrong_size.meta)
+            .unwrap()
+            .replace("\"size\":6", "\"size\":7")
+            .into_bytes();
+        assert_eq!(
+            upload(&mut engine, wrong_size, b"fourth").unwrap_err(),
+            ApiError::ContentMismatch
+        );
+        // `meta` that is not what a client writes.
+        for meta in [
+            &b"not json"[..],
+            b"[]",
+            b"{}",
+            br#"{"sha256":5,"size":"x"}"#,
+        ] {
+            let mut odd = honest(b"fifth", "00000005");
+            odd.meta = meta.to_vec();
+            assert_eq!(
+                upload(&mut engine, odd, b"fifth").unwrap_err(),
+                ApiError::ContentMismatch,
+                "{:?}",
+                String::from_utf8_lossy(meta)
+            );
+        }
+        assert_eq!(engine.item_ids(Partition::Current).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn in_an_encrypted_workspace_nothing_of_the_kind_is_looked_at() {
+        // The server cannot open sealed `meta`, and must not try: whatever
+        // is in it, and whatever the id says, is the client's business.
+        let (mut engine, _) = engine();
+        engine.limits.check_plaintext_content = true;
+        engine
+            .enable_encryption(&rw("a"), key("aa"), b"h".to_vec())
+            .unwrap();
+        let mut sealed = request("00000001-aaaaaaaaaaaa", 6);
+        sealed.expected_key_id = Some(key("aa"));
+        sealed.meta =
+            br#"{"schema":2,"id":"00000001-aaaaaaaaaaaa","nonce":"00","sealed":"ff"}"#.to_vec();
+        assert!(upload(&mut engine, sealed, b"sealed").unwrap().created);
+    }
+
+    #[test]
+    fn content_that_arrives_slowly_holds_no_other_request_up() {
+        // Found by the HTTP slice's checkpoint: the engine kept its random
+        // source locked for the whole of a rule, and `putUploadContent` is a
+        // rule that lasts as long as the client takes to send.
+        struct Stalled(std::sync::mpsc::Receiver<()>);
+        impl std::io::Read for Stalled {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                // Nothing arrives until the other request is done.
+                let _ = self.0.recv();
+                Ok(0)
+            }
+        }
+        let (engine, _) = engine();
+        let slow = ticket(engine.begin_upload(&rw("a"), request(A, 5)).unwrap());
+        let (release, stalled) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let uploading = scope.spawn(|| {
+                engine.put_upload_content(&rw("a"), &slow.upload_id, &mut Stalled(stalled))
+            });
+            // Meanwhile another upload begins, which needs a new id.
+            let (done, finished) = std::sync::mpsc::channel();
+            let engine = &engine;
+            scope.spawn(move || {
+                let other = engine.begin_upload(&rw("b"), request("00000002-bbbbbbbbbbbb", 1));
+                let _ = done.send(other.is_ok());
+            });
+            let answered = finished.recv_timeout(std::time::Duration::from_secs(5));
+            release.send(()).unwrap();
+            uploading.join().unwrap().unwrap();
+            assert_eq!(answered, Ok(true), "held up by the slow upload");
+        });
+    }
+
     #[test]
     fn a_commit_checks_the_announced_size() {
-        let (mut engine, _) = engine();
+        let (engine, _) = engine();
         let t = ticket(engine.begin_upload(&rw("a"), request(A, 5)).unwrap());
         assert_eq!(
             engine.commit_upload(&rw("a"), &t.upload_id).unwrap_err(),
@@ -795,7 +1032,7 @@ pub(crate) mod tests {
 
     #[test]
     fn only_a_writer_under_the_current_key_may_upload() {
-        let (mut engine, _) = engine();
+        let (engine, _) = engine();
         assert_eq!(
             engine.begin_upload(&ro("k"), request(A, 1)).unwrap_err(),
             ApiError::ForbiddenRole
@@ -844,7 +1081,7 @@ pub(crate) mod tests {
 
     #[test]
     fn an_upload_belongs_to_the_key_that_began_it() {
-        let (mut engine, _) = engine();
+        let (engine, _) = engine();
         let t = ticket(engine.begin_upload(&rw("a"), request(A, 1)).unwrap());
         assert_eq!(
             engine
@@ -862,7 +1099,7 @@ pub(crate) mod tests {
 
     #[test]
     fn aborting_frees_the_reservation_and_may_be_repeated() {
-        let (mut engine, _) = engine();
+        let (engine, _) = engine();
         let t = ticket(engine.begin_upload(&rw("a"), request(A, 4)).unwrap());
         engine
             .put_upload_content(
@@ -883,7 +1120,7 @@ pub(crate) mod tests {
 
     #[test]
     fn the_janitor_removes_uploads_nobody_finished() {
-        let (mut engine, clock) = engine();
+        let (engine, clock) = engine();
         let t = ticket(engine.begin_upload(&rw("a"), request(A, 4)).unwrap());
         engine
             .put_upload_content(
@@ -908,7 +1145,7 @@ pub(crate) mod tests {
 
     #[test]
     fn the_janitor_drops_generations_nothing_points_to() {
-        let (mut engine, _) = engine();
+        let (engine, _) = engine();
         let orphan = crate::ids::UploadId::generate(&mut crate::random::SeededRandom::new(9));
         engine.shelf.stage_create(&orphan).unwrap();
         engine

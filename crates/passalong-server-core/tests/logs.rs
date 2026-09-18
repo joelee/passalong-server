@@ -68,12 +68,16 @@ fn a_session_with_warnings_and_errors_logs_ids_and_nothing_of_an_item() {
                 WorkspaceId::parse("00000000000000aa").unwrap(),
                 Arc::new(ManualClock::at(1_000)),
                 Box::new(SeededRandom::new(1)),
-                Limits::default(),
+                Limits {
+                    // Made-up ids: the content check has tests of its own.
+                    check_plaintext_content: false,
+                    ..Limits::default()
+                },
             )
             .unwrap()
         };
         let a = Caller::new(ApiKeyId::new("laptop"), Role::ReadWrite);
-        let mut engine = open();
+        let engine = open();
         engine
             .enable_encryption(&a, KeyId::parse("aa").unwrap(), HEADER.to_vec())
             .unwrap();

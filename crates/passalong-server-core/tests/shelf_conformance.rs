@@ -200,6 +200,57 @@ fn content_streams_in_and_out_in_pieces<S: ItemShelf>(shelf: S) {
     assert_eq!(shelf.bytes(0).unwrap(), SIZE as u64);
 }
 
+fn content_can_be_read_from_an_offset<S: ItemShelf>(shelf: S) {
+    let a = id("00000001-aaaaaaaaaaaa");
+    let upload = stage(&shelf, &mut SeededRandom::new(7), b"0123456789");
+    shelf.publish(&upload, 0, &a, envelope()).unwrap();
+    let read = |offset: u64| {
+        let mut bytes = Vec::new();
+        shelf
+            .open_content_from(0, &a, offset)
+            .unwrap()
+            .unwrap()
+            .read_to_end(&mut bytes)
+            .unwrap();
+        bytes
+    };
+    assert_eq!(read(0), b"0123456789");
+    assert_eq!(read(7), b"789");
+    assert_eq!(read(10), b"");
+    assert_eq!(read(99), b"");
+    let missing = id("00000002-bbbbbbbbbbbb");
+    assert!(shelf.open_content_from(0, &missing, 3).unwrap().is_none());
+}
+
+fn a_staged_upload_remembers_its_digest_when_asked_to<S: ItemShelf>(shelf: S) {
+    use sha2::{Digest, Sha256};
+    let mut rng = SeededRandom::new(8);
+    let hashed = UploadId::generate(&mut rng);
+    shelf.stage_create(&hashed).unwrap();
+    assert_eq!(shelf.stage_digest(&hashed).unwrap(), None);
+    shelf
+        .stage_write_hashed(&hashed, &mut &b"hello"[..], 5)
+        .unwrap();
+    let expect: [u8; 32] = Sha256::digest(b"hello").into();
+    assert_eq!(shelf.stage_digest(&hashed).unwrap(), Some(expect));
+    // Sent again, it is the digest of what was sent last.
+    shelf
+        .stage_write_hashed(&hashed, &mut &b"hullo"[..], 5)
+        .unwrap();
+    assert_ne!(shelf.stage_digest(&hashed).unwrap(), Some(expect));
+    // Written without hashing, there is none: an old one must not linger.
+    shelf.stage_write(&hashed, &mut &b"hello"[..], 5).unwrap();
+    assert_eq!(shelf.stage_digest(&hashed).unwrap(), None);
+    // The digest is the server's note, not part of the item.
+    shelf
+        .stage_write_hashed(&hashed, &mut &b"hello"[..], 5)
+        .unwrap();
+    let a = id("00000001-aaaaaaaaaaaa");
+    shelf.publish(&hashed, 0, &a, envelope()).unwrap();
+    assert_eq!(shelf.stage_digest(&hashed).unwrap(), None);
+    assert_eq!(content_of(&shelf, 0, &a), b"hello");
+}
+
 /// Instantiates the suite for one shelf.
 macro_rules! shelf_suite {
     ($module:ident, $make:expr) => {
@@ -229,6 +280,16 @@ macro_rules! shelf_suite {
             fn content_longer_than_announced_is_refused_and_leaves_nothing() {
                 let (shelf, _guard) = $make;
                 super::content_longer_than_announced_is_refused_and_leaves_nothing(shelf);
+            }
+            #[test]
+            fn content_can_be_read_from_an_offset() {
+                let (shelf, _guard) = $make;
+                super::content_can_be_read_from_an_offset(shelf);
+            }
+            #[test]
+            fn a_staged_upload_remembers_its_digest_when_asked_to() {
+                let (shelf, _guard) = $make;
+                super::a_staged_upload_remembers_its_digest_when_asked_to(shelf);
             }
             #[test]
             fn content_streams_in_and_out_in_pieces() {
@@ -276,6 +337,16 @@ fn files_are_the_owners_alone_and_lie_where_the_layout_says() {
 
     let mode =
         |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    let mut names: Vec<String> = std::fs::read_dir(&item)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        ["content", "meta.json", "server.json"],
+        "nothing else is in an item"
+    );
     for file in ["content", "meta.json", "server.json"] {
         assert_eq!(mode(&item.join(file)), 0o600, "{file}");
     }

@@ -349,7 +349,7 @@ fn read(tx: &Connection, workspace: &WorkspaceId) -> Result<WorkspaceRecord, Api
     }
 
     let mut statement = tx
-        .prepare("SELECT upload_id, owner, item_id, created, expires_at FROM tombstones WHERE workspace = ?1")
+        .prepare("SELECT upload_id, owner, item_id, created, expires_at, staged FROM tombstones WHERE workspace = ?1")
         .map_err(sql)?;
     let rows = statement
         .query_map([workspace.as_str()], |row| {
@@ -359,11 +359,12 @@ fn read(tx: &Connection, workspace: &WorkspaceId) -> Result<WorkspaceRecord, Api
                 row.get::<_, String>(2)?,
                 row.get::<_, bool>(3)?,
                 row.get::<_, i64>(4)?,
+                row.get::<_, bool>(5)?,
             ))
         })
         .map_err(sql)?;
     for row in rows {
-        let (upload, owner, item, created, expires) = row.map_err(sql)?;
+        let (upload, owner, item, created, expires, staged) = row.map_err(sql)?;
         uploads.tombstones.insert(
             UploadId::parse(&upload).map_err(|_| damaged("an upload id"))?,
             Tombstone {
@@ -371,6 +372,7 @@ fn read(tx: &Connection, workspace: &WorkspaceId) -> Result<WorkspaceRecord, Api
                 outcome: PutOutcome {
                     id: ItemId::parse(&item).map_err(|_| damaged("an item id"))?,
                     created,
+                    staged,
                 },
                 expires_at: from_db(expires)?,
             },
@@ -468,8 +470,8 @@ fn write(
     }
     for (upload, stone) in &record.uploads.tombstones {
         tx.execute(
-            "INSERT INTO tombstones (workspace, upload_id, owner, item_id, created, expires_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO tombstones (workspace, upload_id, owner, item_id, created, expires_at, staged)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 id,
                 upload.as_str(),
@@ -477,6 +479,7 @@ fn write(
                 stone.outcome.id.as_str(),
                 stone.outcome.created,
                 to_db(stone.expires_at)?,
+                stone.outcome.staged,
             ],
         )
         .map_err(sql)?;

@@ -317,17 +317,11 @@ fn an_operators_session_from_an_empty_host() {
         "the deleted workspace's directory is gone"
     );
 
-    // What belongs to later slices exists and says so.
-    for later in [
-        vec!["serve"],
-        vec!["tls", "fingerprint"],
-        vec!["service", "install"],
-    ] {
-        assert!(
-            host.fails(&later, 1).contains("not in this build"),
-            "{later:?}"
-        );
-    }
+    // What belongs to a later slice exists and says so.
+    assert!(
+        host.fails(&["service", "install"], 1)
+            .contains("not in this build")
+    );
     // Usage errors are 2.
     host.fails(&["key", "create"], 2);
     host.fails(&["no-such-command"], 2);
@@ -352,6 +346,71 @@ fn an_operators_session_from_an_empty_host() {
             path.display()
         );
     }
+}
+
+#[test]
+fn a_pair_is_made_once_and_its_pin_printed() {
+    use std::os::unix::fs::PermissionsExt;
+    let host = Host::new();
+    init(&host);
+    // `init` expects the pair beside the configuration file.
+    let tls = host.dir.path().join("etc/tls");
+    let (cert, key) = (tls.join("cert.pem"), tls.join("key.pem"));
+
+    let nothing = host.fails(&["tls", "fingerprint"], 1);
+    assert!(nothing.contains("cert.pem"), "{nothing}");
+    assert!(nothing.contains("tls self-signed"), "{nothing}");
+    host.fails(&["tls", "self-signed"], 2);
+    let odd = host.fails(&["tls", "self-signed", "--host", "https://nas"], 1);
+    assert!(
+        odd.contains("neither a host name nor an IP address"),
+        "{odd}"
+    );
+    assert!(!cert.exists() && !key.exists());
+
+    let made = host.run(&[
+        "tls",
+        "self-signed",
+        "--host",
+        "nas.example",
+        "--ip",
+        "192.0.2.4",
+        "--ip",
+        "2001:db8::4",
+    ]);
+    let pin = made
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("tls_pin = "))
+        .unwrap_or_else(|| panic!("no pin in: {made}"))
+        .trim_matches('"')
+        .to_owned();
+    assert!(pin.starts_with("sha256/") && pin.len() == 51, "{pin}");
+    for file in [&cert, &key] {
+        assert!(made.contains(file.to_str().unwrap()), "{made}");
+    }
+    let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&key), 0o600);
+    assert_eq!(mode(&tls), 0o700);
+    assert!(
+        std::fs::read_to_string(&cert)
+            .unwrap()
+            .contains("BEGIN CERTIFICATE")
+    );
+
+    assert_eq!(host.run(&["tls", "fingerprint"]).trim(), pin);
+    assert_eq!(host.json(&["tls", "fingerprint"])["pin"], pin.as_str());
+
+    // Never over a pair that is there: a client may have pinned it.
+    let before = std::fs::read(&key).unwrap();
+    let again = host.fails(&["tls", "self-signed", "--host", "nas.example"], 1);
+    assert!(again.contains("exists already"), "{again}");
+    assert_eq!(std::fs::read(&key).unwrap(), before);
+    // Half a pair is not completed either: the key would not be its key.
+    std::fs::remove_file(&cert).unwrap();
+    host.fails(&["tls", "self-signed", "--host", "nas.example"], 1);
+    assert!(!cert.exists());
+
+    assert!(!host.transcript.borrow().contains("PRIVATE KEY"));
 }
 
 #[test]
@@ -400,13 +459,17 @@ fn a_dead_rewrite_session_is_shown_and_aborted_from_the_host() {
 
     // A device begins a migration and is never heard of again.
     {
-        let mut engine = Engine::open(
+        let engine = Engine::open(
             FsShelf::open(host.data().join("workspaces").join(who.workspace.as_str())).unwrap(),
             SqliteLedger::open(host.data().join("control.sqlite"), Duration::from_secs(5)).unwrap(),
             who.workspace.clone(),
             Arc::new(SystemClock),
             Box::new(OsRandom),
-            Limits::default(),
+            Limits {
+                // Made-up ids: the content check has tests of its own.
+                check_plaintext_content: false,
+                ..Limits::default()
+            },
         )
         .unwrap();
         let request = RewriteRequest {

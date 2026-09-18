@@ -61,7 +61,11 @@ fn open((shelf, ledger): &Stores) -> Engine<Arc<MemoryShelf>, Arc<DyingLedger>> 
         WorkspaceId::parse("00000000000000aa").unwrap(),
         Arc::new(ManualClock::at(1_000)),
         Box::new(SeededRandom::new(7)),
-        Limits::default(),
+        Limits {
+            // Made-up ids: the content check has tests of its own.
+            check_plaintext_content: false,
+            ..Limits::default()
+        },
     )
     .unwrap()
 }
@@ -149,7 +153,7 @@ fn a_publish_that_was_never_recorded_is_finished_by_the_repeated_commit() {
     assert_eq!(engine.used_bytes().unwrap(), 0);
     drop(engine);
 
-    let mut engine = open(&stores);
+    let engine = open(&stores);
     assert_consistent(&engine);
     assert_eq!(engine.used_bytes().unwrap(), 5);
     // The client, which never got its answer, asks again, and gets the
@@ -221,7 +225,7 @@ fn a_removal_that_was_never_recorded_is_found_at_the_next_opening() {
     assert_eq!(engine.used_bytes().unwrap(), 8);
     drop(engine);
 
-    let mut engine = open(&stores);
+    let engine = open(&stores);
     assert_eq!(engine.used_bytes().unwrap(), 3);
     assert_consistent(&engine);
     // Asked again, the delete finds nothing, which the client takes as done.
@@ -259,7 +263,7 @@ fn a_commit_of_a_rewrite_that_was_never_recorded_loses_nothing() {
 
     // Nothing was destroyed: the old generation is dropped only after the
     // record points to the new one, and the record never did.
-    let mut engine = open(&stores);
+    let engine = open(&stores);
     assert_eq!(
         engine.encryption().unwrap().state,
         EncryptionState::Rewriting
@@ -283,7 +287,7 @@ fn an_abort_and_a_fresh_start_that_were_never_recorded_can_be_repeated() {
     engine
         .fresh_start(&caller("a"), key("aa"), b"h".to_vec())
         .unwrap_err();
-    let mut engine = {
+    let engine = {
         drop(engine);
         open(&stores)
     };
@@ -306,7 +310,7 @@ fn an_abort_and_a_fresh_start_that_were_never_recorded_can_be_repeated() {
     engine.begin_rewrite(&caller("a"), rotate).unwrap();
     stores.1.armed.store(true, Ordering::SeqCst);
     engine.abort_rewrite(&caller("a"), &key("bb")).unwrap_err();
-    let mut engine = {
+    let engine = {
         drop(engine);
         open(&stores)
     };
@@ -386,7 +390,11 @@ fn the_janitor_destroys_nothing_before_its_record_is_stored() {
         WorkspaceId::parse("00000000000000aa").unwrap(),
         Arc::new(clock.clone()),
         Box::new(SeededRandom::new(7)),
-        Limits::default(),
+        Limits {
+            // Made-up ids: the content check has tests of its own.
+            check_plaintext_content: false,
+            ..Limits::default()
+        },
     )
     .unwrap();
     let upload = staged(
