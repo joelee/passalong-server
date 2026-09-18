@@ -109,6 +109,38 @@ impl UploadId {
     }
 }
 
+/// A workspace's id: 16 lower-case hex digits, minted by the server. It names
+/// the workspace's directory and its rows in the control database.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct WorkspaceId(String);
+
+impl WorkspaceId {
+    /// A new id from 8 random bytes.
+    pub fn generate(rng: &mut dyn RandomSource) -> Self {
+        let mut bytes = [0_u8; 8];
+        rng.fill(&mut bytes);
+        Self(bytes.iter().map(|b| format!("{b:02x}")).collect())
+    }
+
+    /// Parses an id the control database or a directory name gave.
+    ///
+    /// # Errors
+    ///
+    /// [`ApiError::InvalidId`] unless 16 lower-case hex digits.
+    pub fn parse(text: &str) -> Result<Self, ApiError> {
+        if text.len() == 16 && is_lower_hex(text) {
+            Ok(Self(text.to_owned()))
+        } else {
+            Err(ApiError::InvalidId("not a workspace id".to_owned()))
+        }
+    }
+
+    /// The id as text.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// The public id of an API key: what logs and the audit trail show. It is
 /// minted by the server, never parsed from a request without a lookup, and
 /// holds nothing secret.

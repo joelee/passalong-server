@@ -3,8 +3,8 @@
 
 use crate::error::ApiError;
 use crate::ids::{ApiKeyId, ItemId, KeyId};
-use crate::shelf::{ItemShelf, StoredItem};
-use crate::workspace::{Caller, EncryptionView, Engine, Seal, SessionView, State};
+use crate::shelf::{Content, ItemShelf, StoredItem};
+use crate::workspace::{Caller, Cleanup, EncryptionView, Rules, Seal, SessionView, State};
 
 /// What a rewrite does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,12 +42,12 @@ pub struct RewriteRequest {
     pub new_header: Vec<u8>,
 }
 
-impl<S: ItemShelf> Engine<S> {
+impl<S: ItemShelf> Rules<'_, S> {
     /// The open session, for its holder. While a lease has ended but nobody
     /// took over, the holder is still the holder: taking over is the only
     /// thing that ends its hold, so there are never two.
     fn held_session(&self, caller: &Caller) -> Result<&Session, ApiError> {
-        match &self.state {
+        match &self.rec.state {
             State::Settled(_) => Err(ApiError::NotFound),
             State::Rewriting(session) if session.holder != caller.key => Err(ApiError::LeaseHeld),
             State::Rewriting(session) => Ok(session),
@@ -56,7 +56,7 @@ impl<S: ItemShelf> Engine<S> {
 
     fn renew_lease(&mut self, holder: &ApiKeyId) {
         let lease_expires_at = self.clock.now() + self.limits.lease_secs;
-        if let State::Rewriting(session) = &mut self.state {
+        if let State::Rewriting(session) = &mut self.rec.state {
             session.holder = holder.clone();
             session.lease_expires_at = lease_expires_at;
         }
@@ -84,7 +84,7 @@ impl<S: ItemShelf> Engine<S> {
     /// anyone but the holder.
     pub fn staged_item_ids(&self, caller: &Caller) -> Result<Vec<ItemId>, ApiError> {
         let session = self.held_session(caller)?;
-        Ok(self.shelf.ids(session.staged_generation))
+        self.shelf.ids(session.staged_generation)
     }
 
     /// `getItem` and `getItemContent` with `partition=staged`. The client
@@ -100,23 +100,36 @@ impl<S: ItemShelf> Engine<S> {
     pub fn staged_item(&self, caller: &Caller, id: &ItemId) -> Result<StoredItem, ApiError> {
         let session = self.held_session(caller)?;
         self.shelf
-            .get(session.staged_generation, id)
+            .get(session.staged_generation, id)?
+            .ok_or(ApiError::NotFound)
+    }
+
+    /// `getItemContent` with `partition=staged`: what the holder reads back
+    /// and compares before it commits.
+    ///
+    /// # Errors
+    ///
+    /// As [`Rules::staged_item`].
+    pub fn staged_item_content(&self, caller: &Caller, id: &ItemId) -> Result<Content, ApiError> {
+        let session = self.held_session(caller)?;
+        self.shelf
+            .open_content(session.staged_generation, id)?
             .ok_or(ApiError::NotFound)
     }
 
     /// `getRewrite`.
-    pub fn session_view(&self) -> Option<SessionView> {
-        let State::Rewriting(session) = &self.state else {
-            return None;
+    pub fn session_view(&self) -> Result<Option<SessionView>, ApiError> {
+        let State::Rewriting(session) = &self.rec.state else {
+            return Ok(None);
         };
-        Some(SessionView {
+        Ok(Some(SessionView {
             kind: session.kind,
             holder: session.holder.clone(),
             lease_expires_at: session.lease_expires_at,
             new_key_id: session.next.key_id.clone(),
-            staged_ids: self.shelf.ids(session.staged_generation),
-            source_items: self.shelf.ids(self.generation).len(),
-        })
+            staged_ids: self.shelf.ids(session.staged_generation)?,
+            source_items: self.shelf.ids(self.rec.generation)?.len(),
+        }))
     }
 
     /// `beginRewrite`: takes the lease and opens an empty next generation.
@@ -140,7 +153,7 @@ impl<S: ItemShelf> Engine<S> {
         request: RewriteRequest,
     ) -> Result<SessionView, ApiError> {
         caller.must_write()?;
-        let prior = match &self.state {
+        let prior = match &self.rec.state {
             State::Rewriting(session) => {
                 let replay = session.holder == caller.key
                     && session.kind == request.kind
@@ -149,7 +162,7 @@ impl<S: ItemShelf> Engine<S> {
                     return Err(ApiError::RewriteInProgress);
                 }
                 self.renew_lease(&caller.key);
-                return self.session_view().ok_or(ApiError::NotFound);
+                return self.session_view()?.ok_or(ApiError::NotFound);
             }
             State::Settled(seal) => seal.clone(),
         };
@@ -166,7 +179,7 @@ impl<S: ItemShelf> Engine<S> {
                 ));
             }
         }
-        if self.ended_rewrites.contains(&request.new_key_id) {
+        if self.rec.ended_rewrites.contains(&request.new_key_id) {
             return Err(ApiError::RewriteEnded);
         }
         let current = prior.as_ref().map(|seal| &seal.key_id);
@@ -178,9 +191,9 @@ impl<S: ItemShelf> Engine<S> {
                 "the new key is the current one".to_owned(),
             ));
         }
-        let staged_generation = self.next_generation;
-        self.next_generation += 1;
-        self.state = State::Rewriting(Session {
+        let staged_generation = self.rec.next_generation;
+        self.rec.next_generation += 1;
+        self.rec.state = State::Rewriting(Session {
             kind: request.kind,
             prior,
             next: Seal {
@@ -191,7 +204,7 @@ impl<S: ItemShelf> Engine<S> {
             lease_expires_at: self.clock.now() + self.limits.lease_secs,
             staged_generation,
         });
-        self.session_view().ok_or(ApiError::NotFound)
+        self.session_view()?.ok_or(ApiError::NotFound)
     }
 
     /// `heartbeatRewrite`: the holder renews its lease.
@@ -204,7 +217,7 @@ impl<S: ItemShelf> Engine<S> {
         caller.must_write()?;
         self.held_session(caller)?;
         self.renew_lease(&caller.key);
-        self.session_view().ok_or(ApiError::NotFound)
+        self.session_view()?.ok_or(ApiError::NotFound)
     }
 
     /// `takeOverRewrite`: once the lease has ended, another key becomes the
@@ -219,14 +232,14 @@ impl<S: ItemShelf> Engine<S> {
     /// while the lease runs.
     pub fn take_over_rewrite(&mut self, caller: &Caller) -> Result<SessionView, ApiError> {
         caller.must_write()?;
-        let State::Rewriting(session) = &self.state else {
+        let State::Rewriting(session) = &self.rec.state else {
             return Err(ApiError::NotFound);
         };
         if session.holder != caller.key && session.lease_expires_at > self.clock.now() {
             return Err(ApiError::LeaseHeld);
         }
         self.renew_lease(&caller.key);
-        self.session_view().ok_or(ApiError::NotFound)
+        self.session_view()?.ok_or(ApiError::NotFound)
     }
 
     /// `commitRewrite`: the workspace's generation, header, and key id
@@ -251,10 +264,10 @@ impl<S: ItemShelf> Engine<S> {
         new_key_id: &KeyId,
     ) -> Result<EncryptionView, ApiError> {
         caller.must_write()?;
-        if let State::Settled(seal) = &self.state {
+        if let State::Settled(seal) = &self.rec.state {
             let done = seal.as_ref().is_some_and(|seal| &seal.key_id == new_key_id);
             return if done {
-                Ok(self.encryption())
+                self.encryption()
             } else {
                 Err(ApiError::NotFound)
             };
@@ -263,18 +276,19 @@ impl<S: ItemShelf> Engine<S> {
         if &session.next.key_id != new_key_id {
             return Err(ApiError::KeyIdMismatch);
         }
-        let staged = self.shelf.ids(session.staged_generation).len();
-        let source = self.shelf.ids(self.generation).len();
+        let staged = self.shelf.ids(session.staged_generation)?.len();
+        let source = self.shelf.ids(self.rec.generation)?.len();
         if staged != source {
             return Err(ApiError::RewriteIncomplete { staged, source });
         }
-        let old = self.generation;
-        self.generation = session.staged_generation;
-        self.state = State::Settled(Some(session.next));
-        self.used.remove(&old);
-        self.shelf.drop_generation(old);
+        let old = self.rec.generation;
+        self.rec.generation = session.staged_generation;
+        self.rec.state = State::Settled(Some(session.next));
+        self.rec.used.remove(&old);
+        // Not before the record points elsewhere: see `Cleanup`.
+        self.after.push(Cleanup::DropGeneration(old));
         self.drop_rewrite_uploads();
-        Ok(self.encryption())
+        self.encryption()
     }
 
     /// `abortRewrite`: the workspace is again what it was before
@@ -292,19 +306,20 @@ impl<S: ItemShelf> Engine<S> {
         new_key_id: &KeyId,
     ) -> Result<EncryptionView, ApiError> {
         caller.must_write()?;
-        if matches!(self.state, State::Settled(_)) {
-            return Ok(self.encryption());
+        if matches!(self.rec.state, State::Settled(_)) {
+            return self.encryption();
         }
         let session = self.held_session(caller)?.clone();
         if &session.next.key_id != new_key_id {
             return Err(ApiError::KeyIdMismatch);
         }
-        self.ended_rewrites.insert(session.next.key_id.clone());
-        self.state = State::Settled(session.prior);
-        self.used.remove(&session.staged_generation);
-        self.shelf.drop_generation(session.staged_generation);
+        self.rec.ended_rewrites.insert(session.next.key_id.clone());
+        self.rec.state = State::Settled(session.prior);
+        self.rec.used.remove(&session.staged_generation);
+        self.after
+            .push(Cleanup::DropGeneration(session.staged_generation));
         self.drop_rewrite_uploads();
-        Ok(self.encryption())
+        self.encryption()
     }
 }
 
@@ -316,8 +331,16 @@ mod tests {
     use crate::shelf::MemoryShelf;
     use crate::upload::tests::request;
     use crate::upload::{Begun, PutOutcome};
+    use crate::workspace::Engine;
     use crate::workspace::tests::{engine, key, ro, rw, seed};
     use crate::workspace::{EncryptionState, Limits, Partition};
+
+    fn staged_content(engine: &Engine<MemoryShelf>, who: &str, id: &ItemId) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        let mut stream = engine.staged_item_content(&rw(who), id).unwrap();
+        std::io::Read::read_to_end(&mut stream, &mut bytes).unwrap();
+        bytes
+    }
 
     fn migrate(new: &str) -> RewriteRequest {
         RewriteRequest {
@@ -352,7 +375,11 @@ mod tests {
             Begun::Stored(outcome) => return outcome,
         };
         engine
-            .put_upload_content(&rw(who), &upload, content.to_vec())
+            .put_upload_content(
+                &rw(who),
+                &upload,
+                &mut std::io::Cursor::new(content.to_vec()),
+            )
             .unwrap();
         engine.commit_upload(&rw(who), &upload).unwrap()
     }
@@ -416,11 +443,11 @@ mod tests {
         seed(&mut engine, "00000001-aaaaaaaaaaaa", b"plain");
         engine.begin_rewrite(&rw("a"), migrate("bb")).unwrap();
 
-        let view = engine.encryption();
+        let view = engine.encryption().unwrap();
         assert_eq!(view.state, EncryptionState::Rewriting);
         assert_eq!(view.key_id, None);
         assert_eq!(view.rewrite.unwrap().source_items, 1);
-        assert_eq!(engine.item_ids(Partition::Current).len(), 1);
+        assert_eq!(engine.item_ids(Partition::Current).unwrap().len(), 1);
 
         let id = ItemId::parse("00000001-aaaaaaaaaaaa").unwrap();
         let busy = ApiError::RewriteInProgress;
@@ -469,7 +496,7 @@ mod tests {
         clock.advance(10);
         let again = engine.begin_rewrite(&rw("a"), migrate("bb")).unwrap();
         assert_eq!(again.lease_expires_at, first.lease_expires_at + 10);
-        assert_eq!(engine.live_generations().len(), 2);
+        assert_eq!(engine.live_generations().unwrap().len(), 2);
     }
 
     #[test]
@@ -511,7 +538,7 @@ mod tests {
         seed(&mut engine, "00000001-aaaaaaaaaaaa", b"12345678");
         engine.begin_rewrite(&rw("a"), migrate("bb")).unwrap();
         stage(&mut engine, "a", "00000001-cccccccccccc", "bb", b"12345678");
-        assert_eq!(engine.used_bytes(), 16);
+        assert_eq!(engine.used_bytes().unwrap(), 16);
 
         let mut req = request("00000002-dddddddddddd", 2);
         req.expected_key_id = Some(key("bb"));
@@ -538,6 +565,56 @@ mod tests {
     }
 
     #[test]
+    fn a_refused_operation_leaves_the_record_as_it_was() {
+        let (mut engine, _) = engine();
+        engine.limits.quota_bytes = 10;
+        engine
+            .enable_encryption(&rw("a"), key("aa"), b"h".to_vec())
+            .unwrap();
+        seed(&mut engine, "00000001-aaaaaaaaaaaa", b"12345678");
+        let mut sealed = request("00000002-bbbbbbbbbbbb", 1);
+        sealed.expected_key_id = Some(key("aa"));
+        engine.begin_upload(&rw("a"), sealed.clone()).unwrap();
+        let before = engine.record().unwrap();
+        let id = ItemId::parse("00000001-aaaaaaaaaaaa").unwrap();
+        let unknown = crate::ids::UploadId::generate(&mut crate::random::SeededRandom::new(3));
+
+        let mut too_big = sealed.clone();
+        too_big.id = ItemId::parse("00000003-cccccccccccc").unwrap();
+        too_big.size = 5;
+        assert!(engine.begin_upload(&rw("a"), too_big).is_err());
+        assert!(engine.begin_upload(&ro("k"), sealed).is_err());
+        assert!(engine.commit_upload(&rw("a"), &unknown).is_err());
+        assert!(
+            engine
+                .delete_item(&rw("a"), Partition::Current, &id, None)
+                .is_err()
+        );
+        assert!(
+            engine
+                .enable_encryption(&rw("a"), key("bb"), vec![])
+                .is_err()
+        );
+        assert!(engine.fresh_start(&rw("a"), key("bb"), vec![]).is_err());
+        assert!(engine.replace_header(&rw("a"), &key("bb"), vec![]).is_err());
+        assert!(engine.begin_rewrite(&rw("a"), migrate("bb")).is_err());
+        assert!(engine.begin_rewrite(&rw("a"), rotate("cc", "bb")).is_err());
+        assert!(engine.heartbeat_rewrite(&rw("a")).is_err());
+        assert!(engine.take_over_rewrite(&rw("a")).is_err());
+        assert!(engine.commit_rewrite(&rw("a"), &key("bb")).is_err());
+        assert_eq!(engine.record().unwrap(), before);
+
+        // Within a session, too.
+        engine.begin_rewrite(&rw("a"), rotate("aa", "bb")).unwrap();
+        let before = engine.record().unwrap();
+        assert!(engine.commit_rewrite(&rw("a"), &key("bb")).is_err());
+        assert!(engine.commit_rewrite(&rw("b"), &key("bb")).is_err());
+        assert!(engine.abort_rewrite(&rw("a"), &key("cc")).is_err());
+        assert!(engine.take_over_rewrite(&rw("b")).is_err());
+        assert_eq!(engine.record().unwrap(), before);
+    }
+
+    #[test]
     fn only_the_holder_reads_staged_items_back() {
         // The client verifies every re-encrypted item before it commits, by
         // reading it back and comparing SHA-256 and size. Nobody else has
@@ -556,10 +633,11 @@ mod tests {
             vec![staged.clone()]
         );
         let item = engine.staged_item(&rw("a"), &staged).unwrap();
-        assert_eq!(item.content, b"sealed");
+        assert_eq!(item.size, 6);
+        assert_eq!(staged_content(&engine, "a", &staged), b"sealed");
         assert_eq!(item.envelope.under, Some(key("bb")));
         // Staged items are not the workspace's items yet.
-        assert!(engine.item(Partition::Current, &staged).is_none());
+        assert!(engine.item(Partition::Current, &staged).unwrap().is_none());
 
         let source = ItemId::parse("00000001-aaaaaaaaaaaa").unwrap();
         assert_eq!(
@@ -578,10 +656,7 @@ mod tests {
         // After a take-over the new holder reads, and the former one does not.
         clock.advance(Limits::default().lease_secs + 1);
         engine.take_over_rewrite(&rw("b")).unwrap();
-        assert_eq!(
-            engine.staged_item(&rw("b"), &staged).unwrap().content,
-            b"sealed"
-        );
+        assert_eq!(staged_content(&engine, "b", &staged), b"sealed");
         assert_eq!(
             engine.staged_item(&rw("a"), &staged).unwrap_err(),
             ApiError::LeaseHeld
@@ -622,7 +697,7 @@ mod tests {
             )
             .created
         );
-        assert_eq!(engine.session_view().unwrap().staged_ids.len(), 1);
+        assert_eq!(engine.session_view().unwrap().unwrap().staged_ids.len(), 1);
         assert_eq!(
             engine.commit_rewrite(&rw("a"), &key("bb")).unwrap_err(),
             ApiError::RewriteIncomplete {
@@ -647,13 +722,19 @@ mod tests {
         assert_eq!(view.key_id, Some(key("bb")));
         assert_eq!(view.header.as_deref(), Some(&b"header-bb"[..]));
         assert!(view.rewrite.is_none());
-        let ids = engine.item_ids(Partition::Current);
+        let ids = engine.item_ids(Partition::Current).unwrap();
         assert_eq!(ids.len(), 2);
-        assert!(ids.iter().all(
-            |id| engine.item(Partition::Current, id).unwrap().envelope.under == Some(key("bb"))
-        ));
-        assert_eq!(engine.used_bytes(), 21);
-        assert_eq!(engine.shelf().generations().len(), 1);
+        assert!(ids.iter().all(|id| {
+            engine
+                .item(Partition::Current, id)
+                .unwrap()
+                .unwrap()
+                .envelope
+                .under
+                == Some(key("bb"))
+        }));
+        assert_eq!(engine.used_bytes().unwrap(), 21);
+        assert_eq!(engine.shelf().generations().unwrap().len(), 1);
 
         // A commit whose answer was lost is asked again, by anyone who
         // knows the new key id, and learns that it happened.
@@ -705,10 +786,10 @@ mod tests {
         assert_eq!(view.key_id, Some(key("aa")));
         assert_eq!(engine.abort_rewrite(&rw("a"), &key("bb")).unwrap(), view);
 
-        assert_eq!(engine.item_ids(Partition::Current).len(), 1);
-        assert_eq!(engine.used_bytes(), 9);
-        assert_eq!(engine.shelf().generations().len(), 1);
-        assert!(engine.shelf().staged().is_empty());
+        assert_eq!(engine.item_ids(Partition::Current).unwrap().len(), 1);
+        assert_eq!(engine.used_bytes().unwrap(), 9);
+        assert_eq!(engine.shelf().generations().unwrap().len(), 1);
+        assert!(engine.shelf().staged().unwrap().is_empty());
     }
 
     #[test]
@@ -730,12 +811,15 @@ mod tests {
             ApiError::RewriteEnded
         );
         clock.advance(10 * Limits::default().staging_secs);
-        engine.clean_staging();
+        engine.clean_staging().unwrap();
         assert_eq!(
             engine.begin_rewrite(&rw("a"), migrate("bb")).unwrap_err(),
             ApiError::RewriteEnded
         );
-        assert_eq!(engine.encryption().state, EncryptionState::Plaintext);
+        assert_eq!(
+            engine.encryption().unwrap().state,
+            EncryptionState::Plaintext
+        );
         // A new attempt, under a new key, is welcome.
         engine.begin_rewrite(&rw("a"), migrate("cc")).unwrap();
     }
@@ -808,7 +892,11 @@ mod tests {
             panic!("no ticket");
         };
         engine
-            .put_upload_content(&rw("a"), &ticket.upload_id, b"x".to_vec())
+            .put_upload_content(
+                &rw("a"),
+                &ticket.upload_id,
+                &mut std::io::Cursor::new(b"x".to_vec()),
+            )
             .unwrap();
         clock.advance(Limits::default().lease_secs + 1);
         engine.take_over_rewrite(&rw("b")).unwrap();

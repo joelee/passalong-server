@@ -9,9 +9,25 @@ repository.workspace = true
 homepage.workspace = true
 description = "passalong server domain: configuration, workspaces, API keys, and the item store"
 
-[dev-dependencies]
-# Parses docs/api/openapi.json in tests/openapi.rs.
+[features]
+# Test support: named places where the kill harness aborts the process.
+# Never enabled in the server's build; see src/fault.rs.
+fault-injection = []
+
+[[bin]]
+# Test support for tests/kill.rs and tests/two_processes.rs; see its docs.
+name = "storage_child"
+path = "src/bin/storage_child.rs"
+required-features = ["fault-injection"]
+
+[dependencies]
+rusqlite.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

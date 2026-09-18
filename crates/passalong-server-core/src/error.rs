@@ -37,6 +37,9 @@ pub enum ApiError {
     InvalidId(String),
     /// A request that makes no sense in the workspace's state.
     InvalidRequest(String),
+    /// The control database or the data directory cannot be used. The
+    /// server fails closed: it refuses, and never answers from memory.
+    ServiceUnavailable,
 }
 
 impl ApiError {
@@ -55,6 +58,7 @@ impl ApiError {
             Self::NotFound => "NOT_FOUND",
             Self::InvalidId(_) => "INVALID_ID",
             Self::InvalidRequest(_) => "INVALID_REQUEST",
+            Self::ServiceUnavailable => "SERVICE_UNAVAILABLE",
         }
     }
 
@@ -71,12 +75,16 @@ impl ApiError {
             Self::ContentMismatch => 422,
             Self::NotFound => 404,
             Self::InvalidId(_) | Self::InvalidRequest(_) => 400,
+            Self::ServiceUnavailable => 503,
         }
     }
 
     /// Whether sending the same request again later can succeed.
     pub fn retryable(&self) -> bool {
-        matches!(self, Self::RewriteInProgress | Self::LeaseHeld)
+        matches!(
+            self,
+            Self::RewriteInProgress | Self::LeaseHeld | Self::ServiceUnavailable
+        )
     }
 }
 
@@ -98,6 +106,7 @@ impl fmt::Display for ApiError {
             Self::ContentMismatch => f.write_str("the content is not what was announced"),
             Self::NotFound => f.write_str("not found"),
             Self::InvalidId(reason) | Self::InvalidRequest(reason) => f.write_str(reason),
+            Self::ServiceUnavailable => f.write_str("the server cannot reach its storage"),
         }
     }
 }
@@ -140,6 +149,12 @@ mod tests {
                 "INVALID_REQUEST",
                 400,
                 false,
+            ),
+            (
+                ApiError::ServiceUnavailable,
+                "SERVICE_UNAVAILABLE",
+                503,
+                true,
             ),
         ];
         for (err, code, status, retry) in cases {

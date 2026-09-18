@@ -23,6 +23,7 @@ use std::sync::Arc;
 use passalong_server_core::clock::ManualClock;
 use passalong_server_core::error::ApiError;
 use passalong_server_core::ids::{ApiKeyId, ItemId, KeyId, UploadId};
+use passalong_server_core::ledger::{Ledger, MemoryLedger, WorkspaceId};
 use passalong_server_core::random::SeededRandom;
 use passalong_server_core::rewrite::{RewriteKind, RewriteRequest};
 use passalong_server_core::shelf::{Envelope, ItemShelf, MemoryShelf, StoredItem};
@@ -56,9 +57,20 @@ fn seal(under: Option<&KeyId>, text: &str) -> Vec<u8> {
     format!("{}|{text}", label(under)).into_bytes()
 }
 
+fn read_all(mut stream: passalong_server_core::shelf::Content) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut stream, &mut bytes).unwrap();
+    bytes
+}
+
 /// What the client reads back: the key label and the text.
-fn open(item: &StoredItem) -> (String, String) {
-    let content = String::from_utf8(item.content.clone()).unwrap();
+fn read_item<S: ItemShelf, L: Ledger>(
+    engine: &Engine<S, L>,
+    partition: Partition,
+    id: &ItemId,
+) -> (String, String) {
+    let stream = engine.item_content(partition, id).unwrap().unwrap();
+    let content = String::from_utf8(read_all(stream)).unwrap();
     let (under, text) = content.split_once('|').unwrap();
     (under.to_owned(), text.to_owned())
 }
@@ -78,22 +90,23 @@ struct Expect {
     may: BTreeSet<String>,
 }
 
-fn texts<S: ItemShelf>(engine: &Engine<S>) -> BTreeSet<String> {
+fn texts<S: ItemShelf, L: Ledger>(engine: &Engine<S, L>) -> BTreeSet<String> {
     [Partition::Current, Partition::Plain]
         .into_iter()
         .flat_map(|partition| {
             engine
                 .item_ids(partition)
+                .unwrap()
                 .into_iter()
                 .map(move |id| (partition, id))
         })
-        .map(|(partition, id)| open(&engine.item(partition, &id).unwrap()).1)
+        .map(|(partition, id)| read_item(engine, partition, &id).1)
         .collect()
 }
 
 /// I1 to I4. I5 is checked by the driver, which sees the answers.
-fn check<S: ItemShelf>(engine: &Engine<S>, expect: &Expect) -> Result<(), String> {
-    let view = engine.encryption();
+fn check<S: ItemShelf, L: Ledger>(engine: &Engine<S, L>, expect: &Expect) -> Result<(), String> {
+    let view = engine.encryption().unwrap();
 
     // I1: one state, and a session exactly when it is `Rewriting`.
     if (view.state == EncryptionState::Rewriting) != view.rewrite.is_some() {
@@ -117,17 +130,19 @@ fn check<S: ItemShelf>(engine: &Engine<S>, expect: &Expect) -> Result<(), String
     }
 
     // I2: every item was uploaded under the key its generation is under.
-    for id in engine.item_ids(Partition::Current) {
-        let item = engine.item(Partition::Current, &id).unwrap();
-        if item.envelope.under != view.key_id || open(&item).0 != label(view.key_id.as_ref()) {
+    for id in engine.item_ids(Partition::Current).unwrap() {
+        let item = engine.item(Partition::Current, &id).unwrap().unwrap();
+        if item.envelope.under != view.key_id
+            || read_item(engine, Partition::Current, &id).0 != label(view.key_id.as_ref())
+        {
             return Err(format!(
                 "I2: {id} is under {:?}, the workspace under {:?}",
                 item.envelope.under, view.key_id
             ));
         }
     }
-    for id in engine.item_ids(Partition::Plain) {
-        let item = engine.item(Partition::Plain, &id).unwrap();
+    for id in engine.item_ids(Partition::Plain).unwrap() {
+        let item = engine.item(Partition::Plain, &id).unwrap().unwrap();
         if item.envelope.under.is_some() {
             return Err(format!(
                 "I2: plain item {id} is under {:?}",
@@ -136,9 +151,9 @@ fn check<S: ItemShelf>(engine: &Engine<S>, expect: &Expect) -> Result<(), String
         }
     }
     if let Some(session) = &view.rewrite {
-        let staged_generation = *engine.live_generations().last().unwrap();
+        let staged_generation = *engine.live_generations().unwrap().last().unwrap();
         for id in &session.staged_ids {
-            let item = engine.shelf().get(staged_generation, id).unwrap();
+            let item = engine.shelf().get(staged_generation, id).unwrap().unwrap();
             if item.envelope.under.as_ref() != Some(&session.new_key_id) {
                 return Err(format!(
                     "I2: staged {id} is under {:?}",
@@ -163,46 +178,51 @@ fn check<S: ItemShelf>(engine: &Engine<S>, expect: &Expect) -> Result<(), String
     // I4: the books agree with the shelf.
     let on_shelf: u64 = engine
         .live_generations()
+        .unwrap()
         .iter()
-        .map(|g| engine.shelf().bytes(*g))
+        .map(|g| engine.shelf().bytes(*g).unwrap())
         .sum();
-    if engine.used_bytes() != on_shelf {
+    if engine.used_bytes().unwrap() != on_shelf {
         return Err(format!(
             "I4: {} bytes on the books, {on_shelf} on the shelf",
-            engine.used_bytes()
+            engine.used_bytes().unwrap()
         ));
     }
-    if engine.shelf().staged().len() > engine.pending_uploads() {
+    if engine.shelf().staged().unwrap().len() > engine.pending_uploads().unwrap() {
         return Err(format!(
             "I4: {} staging places for {} uploads",
-            engine.shelf().staged().len(),
-            engine.pending_uploads()
+            engine.shelf().staged().unwrap().len(),
+            engine.pending_uploads().unwrap()
         ));
     }
     Ok(())
 }
 
 /// What must hold once everything has settled and the janitor has passed.
-fn check_settled<S: ItemShelf>(engine: &Engine<S>, expect: &Expect) -> Result<(), String> {
+fn check_settled<S: ItemShelf, L: Ledger>(
+    engine: &Engine<S, L>,
+    expect: &Expect,
+) -> Result<(), String> {
     check(engine, expect)?;
-    if engine.encryption().state == EncryptionState::Rewriting {
+    if engine.encryption().unwrap().state == EncryptionState::Rewriting {
         return Err("settled: a rewrite is still open".to_owned());
     }
-    if !engine.shelf().staged().is_empty()
-        || engine.pending_uploads() != 0
-        || engine.reserved_bytes() != 0
+    if !engine.shelf().staged().unwrap().is_empty()
+        || engine.pending_uploads().unwrap() != 0
+        || engine.reserved_bytes().unwrap() != 0
     {
         return Err(format!(
             "settled: {} staging places, {} uploads, {} bytes reserved",
-            engine.shelf().staged().len(),
-            engine.pending_uploads(),
-            engine.reserved_bytes()
+            engine.shelf().staged().unwrap().len(),
+            engine.pending_uploads().unwrap(),
+            engine.reserved_bytes().unwrap()
         ));
     }
-    let live = engine.live_generations();
+    let live = engine.live_generations().unwrap();
     if let Some(orphan) = engine
         .shelf()
         .generations()
+        .unwrap()
         .into_iter()
         .find(|g| !live.contains(g))
     {
@@ -224,14 +244,14 @@ struct Ctx {
 }
 
 type Answer = Result<String, ApiError>;
-type Step<S> = Box<dyn Fn(&mut Ctx, &mut Engine<S>) -> Answer>;
+type Step<S, L> = Box<dyn Fn(&mut Ctx, &mut Engine<S, L>) -> Answer>;
 
-struct Scenario<S> {
+struct Scenario<S, L> {
     name: &'static str,
     /// Texts stored before the script starts, with the key they are under.
     initial: Vec<&'static str>,
     initial_key: Option<&'static str>,
-    steps: Vec<Step<S>>,
+    steps: Vec<Step<S, L>>,
     /// Texts the script uploads.
     uploads: Vec<&'static str>,
 }
@@ -251,14 +271,14 @@ fn remember(ctx: &mut Ctx, upload: &UploadId, outcome: &PutOutcome) {
 }
 
 /// The three requests of one upload, as three steps.
-fn upload<S: ItemShelf + 'static>(
+fn upload<S: ItemShelf + 'static, L: Ledger + 'static>(
     who: &'static str,
     name: &'static str,
     ts: u32,
     under: Option<&'static str>,
     text: &'static str,
     in_rewrite: bool,
-) -> Vec<Step<S>> {
+) -> Vec<Step<S, L>> {
     let under = under.map(key);
     let (u1, u2) = (under.clone(), under.clone());
     vec![
@@ -283,7 +303,11 @@ fn upload<S: ItemShelf + 'static>(
             let Some(upload) = ctx.uploads.get(name).cloned() else {
                 return Err(ApiError::NotFound);
             };
-            engine.put_upload_content(&caller(who), &upload, seal(u2.as_ref(), text))?;
+            engine.put_upload_content(
+                &caller(who),
+                &upload,
+                &mut std::io::Cursor::new(seal(u2.as_ref(), text)),
+            )?;
             Ok("204".to_owned())
         }),
         Box::new(move |ctx, engine| {
@@ -306,12 +330,12 @@ fn rewrite_request(kind: RewriteKind, old: Option<&str>, new: &str) -> RewriteRe
     }
 }
 
-fn begin_rewrite<S: ItemShelf + 'static>(
+fn begin_rewrite<S: ItemShelf + 'static, L: Ledger + 'static>(
     who: &'static str,
     kind: RewriteKind,
     old: Option<&'static str>,
     new: &'static str,
-) -> Step<S> {
+) -> Step<S, L> {
     Box::new(move |_, engine| {
         engine
             .begin_rewrite(&caller(who), rewrite_request(kind, old, new))
@@ -321,18 +345,18 @@ fn begin_rewrite<S: ItemShelf + 'static>(
 
 /// Seals and stages every source item that is not staged yet, as the
 /// client's rewrite engine does, so that a resumed run repeats nothing.
-fn stage_missing<S: ItemShelf>(
+fn stage_missing<S: ItemShelf, L: Ledger>(
     ctx: &mut Ctx,
-    engine: &mut Engine<S>,
+    engine: &mut Engine<S, L>,
     who: &str,
     new: &KeyId,
 ) -> Result<usize, ApiError> {
-    let session = engine.session_view().ok_or(ApiError::NotFound)?;
+    let session = engine.session_view().unwrap().ok_or(ApiError::NotFound)?;
     let mut staged = 0;
-    let mut sources = engine.item_ids(Partition::Current);
+    let mut sources = engine.item_ids(Partition::Current).unwrap();
     sources.reverse();
     for source in sources {
-        let text = open(&engine.item(Partition::Current, &source).unwrap()).1;
+        let text = read_item(engine, Partition::Current, &source).1;
         let id = id_for(ts_of(&source), Some(new), &text);
         if session.staged_ids.contains(&id) {
             continue;
@@ -345,7 +369,11 @@ fn stage_missing<S: ItemShelf>(
             in_rewrite: true,
         };
         if let Begun::Ticket(ticket) = engine.begin_upload(&caller(who), request)? {
-            engine.put_upload_content(&caller(who), &ticket.upload_id, seal(Some(new), &text))?;
+            engine.put_upload_content(
+                &caller(who),
+                &ticket.upload_id,
+                &mut std::io::Cursor::new(seal(Some(new), &text)),
+            )?;
             let outcome = engine.commit_upload(&caller(who), &ticket.upload_id)?;
             remember(ctx, &ticket.upload_id, &outcome);
         }
@@ -353,13 +381,13 @@ fn stage_missing<S: ItemShelf>(
     }
     // The client's `verify`: every new item is read back before the commit,
     // those staged by an earlier run included.
-    let sources = engine.item_ids(Partition::Current);
+    let sources = engine.item_ids(Partition::Current).unwrap();
     for source in &sources {
-        let text = open(&engine.item(Partition::Current, source).unwrap()).1;
+        let text = read_item(engine, Partition::Current, source).1;
         let id = id_for(ts_of(source), Some(new), &text);
-        let item = engine.staged_item(&caller(who), &id)?;
+        let staged = read_all(engine.staged_item_content(&caller(who), &id)?);
         assert_eq!(
-            item.content,
+            staged,
             seal(Some(new), &text),
             "verify: {id} is not the re-encryption of {source}"
         );
@@ -368,7 +396,7 @@ fn stage_missing<S: ItemShelf>(
     Ok(staged)
 }
 
-fn scenarios<S: ItemShelf + 'static>() -> Vec<Scenario<S>> {
+fn scenarios<S: ItemShelf + 'static, L: Ledger + 'static>() -> Vec<Scenario<S, L>> {
     let mut all = Vec::new();
 
     all.push(Scenario {
@@ -379,7 +407,7 @@ fn scenarios<S: ItemShelf + 'static>() -> Vec<Scenario<S>> {
         uploads: vec!["two"],
     });
 
-    let mut steps: Vec<Step<S>> = vec![Box::new(|_, engine| {
+    let mut steps: Vec<Step<S, L>> = vec![Box::new(|_, engine| {
         engine
             .enable_encryption(&caller("a"), key("aa"), b"header-aa".to_vec())
             .map(|view| format!("{view:?}"))
@@ -393,7 +421,7 @@ fn scenarios<S: ItemShelf + 'static>() -> Vec<Scenario<S>> {
         uploads: vec!["two"],
     });
 
-    let mut steps: Vec<Step<S>> = vec![Box::new(|_, engine| {
+    let mut steps: Vec<Step<S, L>> = vec![Box::new(|_, engine| {
         engine
             .replace_header(&caller("a"), &key("aa"), b"header-aa-new-words".to_vec())
             .map(|view| format!("{view:?}"))
@@ -407,7 +435,7 @@ fn scenarios<S: ItemShelf + 'static>() -> Vec<Scenario<S>> {
         uploads: vec!["two"],
     });
 
-    let mut steps: Vec<Step<S>> = vec![Box::new(|_, engine| {
+    let mut steps: Vec<Step<S, L>> = vec![Box::new(|_, engine| {
         engine
             .fresh_start(&caller("a"), key("aa"), b"header-aa".to_vec())
             .map(|view| format!("{view:?}"))
@@ -427,7 +455,7 @@ fn scenarios<S: ItemShelf + 'static>() -> Vec<Scenario<S>> {
         ("migrate, aborted", RewriteKind::Migrate, None, true),
         ("rotate, aborted", RewriteKind::Rotate, Some("aa"), true),
     ] {
-        let mut steps: Vec<Step<S>> = vec![begin_rewrite("a", kind, old, "bb")];
+        let mut steps: Vec<Step<S, L>> = vec![begin_rewrite("a", kind, old, "bb")];
         // The initial items are created at 1 and 2; see `prepare`.
         steps.extend(upload("a", "s1", 1, Some("bb"), "one", true));
         steps.push(Box::new(|_, engine| {
@@ -460,7 +488,8 @@ fn scenarios<S: ItemShelf + 'static>() -> Vec<Scenario<S>> {
         });
     }
 
-    let mut steps: Vec<Step<S>> = vec![begin_rewrite("a", RewriteKind::Rotate, Some("aa"), "bb")];
+    let mut steps: Vec<Step<S, L>> =
+        vec![begin_rewrite("a", RewriteKind::Rotate, Some("aa"), "bb")];
     steps.extend(upload("a", "s1", 1, Some("bb"), "one", true));
     steps.push(Box::new(|_, engine| {
         // The second device finds the lease running: it must wait.
@@ -478,8 +507,12 @@ fn scenarios<S: ItemShelf + 'static>() -> Vec<Scenario<S>> {
             .map(|view| format!("{view:?}"))
     }));
     steps.push(Box::new(|ctx, engine| {
-        stage_missing(ctx, engine, "b", &key("bb"))
-            .map(|_| format!("{:?}", engine.session_view().map(|view| view.staged_ids)))
+        stage_missing(ctx, engine, "b", &key("bb")).map(|_| {
+            format!(
+                "{:?}",
+                engine.session_view().unwrap().map(|view| view.staged_ids)
+            )
+        })
     }));
     steps.push(Box::new(|_, engine| {
         engine
@@ -512,14 +545,20 @@ fn limits() -> Limits {
 }
 
 /// A workspace holding the scenario's initial items, put there by uploads.
-fn prepare<S: ItemShelf>(shelf: S, scenario: &Scenario<S>) -> (Engine<S>, ManualClock, Expect) {
+fn prepare<S: ItemShelf, L: Ledger>(
+    (shelf, ledger): (S, L),
+    scenario: &Scenario<S, L>,
+) -> (Engine<S, L>, ManualClock, Expect) {
     let clock = ManualClock::at(1_000);
-    let mut engine = Engine::new(
+    let mut engine = Engine::open(
         shelf,
+        ledger,
+        WorkspaceId::generate(&mut SeededRandom::new(2)),
         Arc::new(clock.clone()),
         Box::new(SeededRandom::new(1)),
         limits(),
-    );
+    )
+    .unwrap();
     let under = scenario.initial_key.map(key);
     if let Some(under) = &under {
         engine
@@ -541,7 +580,7 @@ fn prepare<S: ItemShelf>(shelf: S, scenario: &Scenario<S>) -> (Engine<S>, Manual
             .put_upload_content(
                 &caller("setup"),
                 &ticket.upload_id,
-                seal(under.as_ref(), text),
+                &mut std::io::Cursor::new(seal(under.as_ref(), text)),
             )
             .unwrap();
         assert!(
@@ -567,17 +606,17 @@ fn prepare<S: ItemShelf>(shelf: S, scenario: &Scenario<S>) -> (Engine<S>, Manual
 }
 
 /// The take-over scenario's third step passes only once the lease ended.
-fn before_step<S>(scenario: &Scenario<S>, index: usize, clock: &ManualClock) {
+fn before_step<S, L>(scenario: &Scenario<S, L>, index: usize, clock: &ManualClock) {
     if scenario.name.starts_with("take-over") && index == 5 {
         clock.advance(LEASE + 1);
     }
 }
 
-fn run_step<S: ItemShelf>(
-    scenario: &Scenario<S>,
+fn run_step<S: ItemShelf, L: Ledger>(
+    scenario: &Scenario<S, L>,
     index: usize,
     ctx: &mut Ctx,
-    engine: &mut Engine<S>,
+    engine: &mut Engine<S, L>,
     clock: &ManualClock,
     expect: &Expect,
 ) -> String {
@@ -586,11 +625,11 @@ fn run_step<S: ItemShelf>(
 }
 
 /// Sends request `index` and checks the invariants, without moving time.
-fn send<S: ItemShelf>(
-    scenario: &Scenario<S>,
+fn send<S: ItemShelf, L: Ledger>(
+    scenario: &Scenario<S, L>,
     index: usize,
     ctx: &mut Ctx,
-    engine: &mut Engine<S>,
+    engine: &mut Engine<S, L>,
     expect: &Expect,
 ) -> String {
     let answer = (scenario.steps[index])(ctx, engine)
@@ -600,9 +639,14 @@ fn send<S: ItemShelf>(
     answer
 }
 
-fn settle<S: ItemShelf>(engine: &mut Engine<S>, clock: &ManualClock, expect: &Expect, what: &str) {
+fn settle<S: ItemShelf, L: Ledger>(
+    engine: &mut Engine<S, L>,
+    clock: &ManualClock,
+    expect: &Expect,
+    what: &str,
+) {
     clock.advance(STAGING + 1);
-    engine.clean_staging();
+    engine.clean_staging().unwrap();
     check_settled(engine, expect).unwrap_or_else(|err| panic!("{what}: {err}"));
 }
 
@@ -614,23 +658,23 @@ enum Recovery {
 
 /// The client dies after request `n`; a rescuer recovers; the zombie's
 /// remaining requests arrive anyway.
-fn stop_after<S: ItemShelf>(
-    shelf: S,
-    scenario: &Scenario<S>,
+fn stop_after<S: ItemShelf, L: Ledger>(
+    stores: (S, L),
+    scenario: &Scenario<S, L>,
     n: usize,
     recovery: Recovery,
 ) -> bool {
-    let (mut engine, clock, expect) = prepare(shelf, scenario);
+    let (mut engine, clock, expect) = prepare(stores, scenario);
     let mut ctx = Ctx::default();
     for index in 0..=n {
         run_step(scenario, index, &mut ctx, &mut engine, &clock, &expect);
     }
     let what = format!("{}: stop after {n}, {recovery:?}", scenario.name);
 
-    let open = engine.encryption().state == EncryptionState::Rewriting;
+    let open = engine.encryption().unwrap().state == EncryptionState::Rewriting;
     if open {
         let rescuer = caller("rescuer");
-        let new = engine.session_view().unwrap().new_key_id;
+        let new = engine.session_view().unwrap().unwrap().new_key_id;
         assert_eq!(
             engine.take_over_rewrite(&rescuer).unwrap_err(),
             ApiError::LeaseHeld,
@@ -666,8 +710,8 @@ fn stop_after<S: ItemShelf>(
 }
 
 /// Request `n` is sent twice in a row; both answers must be equal.
-fn repeat<S: ItemShelf>(shelf: S, scenario: &Scenario<S>, n: usize) {
-    let (mut engine, clock, mut expect) = prepare(shelf, scenario);
+fn repeat<S: ItemShelf, L: Ledger>(stores: (S, L), scenario: &Scenario<S, L>, n: usize) {
+    let (mut engine, clock, mut expect) = prepare(stores, scenario);
     let mut ctx = Ctx::default();
     for index in 0..scenario.steps.len() {
         let first = run_step(scenario, index, &mut ctx, &mut engine, &clock, &expect);
@@ -693,8 +737,8 @@ fn repeat<S: ItemShelf>(shelf: S, scenario: &Scenario<S>, n: usize) {
 }
 
 /// Request `n` is sent again after the script ended.
-fn replay_late<S: ItemShelf>(shelf: S, scenario: &Scenario<S>, n: usize) {
-    let (mut engine, clock, mut expect) = prepare(shelf, scenario);
+fn replay_late<S: ItemShelf, L: Ledger>(stores: (S, L), scenario: &Scenario<S, L>, n: usize) {
+    let (mut engine, clock, mut expect) = prepare(stores, scenario);
     let mut ctx = Ctx::default();
     for index in 0..scenario.steps.len() {
         run_step(scenario, index, &mut ctx, &mut engine, &clock, &expect);
@@ -711,9 +755,11 @@ fn replay_late<S: ItemShelf>(shelf: S, scenario: &Scenario<S>, n: usize) {
     );
 }
 
-fn run_everything<S: ItemShelf + 'static>(make: impl Fn() -> S) -> (usize, usize) {
+fn run_everything<S: ItemShelf + 'static, L: Ledger + 'static>(
+    make: impl Fn() -> (S, L),
+) -> (usize, usize) {
     let (mut variants, mut requests) = (0, 0);
-    for scenario in scenarios::<S>() {
+    for scenario in scenarios::<S, L>() {
         requests += scenario.steps.len();
         for n in 0..scenario.steps.len() {
             let open = stop_after(make(), &scenario, n, Recovery::Resume);
@@ -735,34 +781,46 @@ fn run_everything<S: ItemShelf + 'static>(make: impl Fn() -> S) -> (usize, usize
 /// Forwards everything to a [`MemoryShelf`], except what a test overrides.
 macro_rules! forward {
     () => {
-        fn stage_create(&mut self, upload: &UploadId) {
-            self.inner.stage_create(upload);
+        fn stage_create(&self, upload: &UploadId) -> Result<(), ApiError> {
+            self.inner.stage_create(upload)
         }
-        fn stage_write(&mut self, upload: &UploadId, content: Vec<u8>) -> Result<(), ApiError> {
-            self.inner.stage_write(upload, content)
+        fn stage_write(
+            &self,
+            upload: &UploadId,
+            content: &mut dyn std::io::Read,
+            announced: u64,
+        ) -> Result<u64, ApiError> {
+            self.inner.stage_write(upload, content, announced)
         }
-        fn stage_size(&self, upload: &UploadId) -> Option<u64> {
+        fn stage_size(&self, upload: &UploadId) -> Result<Option<u64>, ApiError> {
             self.inner.stage_size(upload)
         }
-        fn stage_remove(&mut self, upload: &UploadId) {
-            self.inner.stage_remove(upload);
+        fn stage_remove(&self, upload: &UploadId) -> Result<(), ApiError> {
+            self.inner.stage_remove(upload)
         }
-        fn staged(&self) -> Vec<UploadId> {
+        fn staged(&self) -> Result<Vec<UploadId>, ApiError> {
             self.inner.staged()
         }
-        fn get(&self, generation: u64, id: &ItemId) -> Option<StoredItem> {
+        fn get(&self, generation: u64, id: &ItemId) -> Result<Option<StoredItem>, ApiError> {
             self.inner.get(generation, id)
         }
-        fn ids(&self, generation: u64) -> Vec<ItemId> {
+        fn open_content(
+            &self,
+            generation: u64,
+            id: &ItemId,
+        ) -> Result<Option<passalong_server_core::shelf::Content>, ApiError> {
+            self.inner.open_content(generation, id)
+        }
+        fn ids(&self, generation: u64) -> Result<Vec<ItemId>, ApiError> {
             self.inner.ids(generation)
         }
-        fn remove(&mut self, generation: u64, id: &ItemId) -> Option<StoredItem> {
+        fn remove(&self, generation: u64, id: &ItemId) -> Result<Option<StoredItem>, ApiError> {
             self.inner.remove(generation, id)
         }
-        fn generations(&self) -> Vec<u64> {
+        fn generations(&self) -> Result<Vec<u64>, ApiError> {
             self.inner.generations()
         }
-        fn bytes(&self, generation: u64) -> u64 {
+        fn bytes(&self, generation: u64) -> Result<u64, ApiError> {
             self.inner.bytes(generation)
         }
     };
@@ -777,17 +835,17 @@ struct LossyShelf {
 impl ItemShelf for LossyShelf {
     forward!();
     fn publish(
-        &mut self,
+        &self,
         upload: &UploadId,
         _: u64,
         _: &ItemId,
         _: Envelope,
     ) -> Result<bool, ApiError> {
-        self.inner.stage_remove(upload);
+        self.inner.stage_remove(upload)?;
         Ok(true)
     }
-    fn drop_generation(&mut self, generation: u64) {
-        self.inner.drop_generation(generation);
+    fn drop_generation(&self, generation: u64) -> Result<(), ApiError> {
+        self.inner.drop_generation(generation)
     }
 }
 
@@ -800,7 +858,7 @@ struct HoardingShelf {
 impl ItemShelf for HoardingShelf {
     forward!();
     fn publish(
-        &mut self,
+        &self,
         upload: &UploadId,
         generation: u64,
         id: &ItemId,
@@ -808,22 +866,24 @@ impl ItemShelf for HoardingShelf {
     ) -> Result<bool, ApiError> {
         self.inner.publish(upload, generation, id, envelope)
     }
-    fn drop_generation(&mut self, _: u64) {}
+    fn drop_generation(&self, _: u64) -> Result<(), ApiError> {
+        Ok(())
+    }
 }
 
-/// Not broken, only unlucky: the first removal of a generation is cut
-/// short, as by a crash between `commitRewrite`'s transaction and its
+/// Not broken, only unlucky: the first removal of a generation fails, as
+/// when the process dies between `commitRewrite`'s transaction and its
 /// clean-up. The janitor must finish the job.
 #[derive(Default)]
 struct InterruptedShelf {
     inner: MemoryShelf,
-    interrupted: bool,
+    interrupted: std::sync::atomic::AtomicBool,
 }
 
 impl ItemShelf for InterruptedShelf {
     forward!();
     fn publish(
-        &mut self,
+        &self,
         upload: &UploadId,
         generation: u64,
         id: &ItemId,
@@ -831,11 +891,15 @@ impl ItemShelf for InterruptedShelf {
     ) -> Result<bool, ApiError> {
         self.inner.publish(upload, generation, id, envelope)
     }
-    fn drop_generation(&mut self, generation: u64) {
-        if self.interrupted {
-            self.inner.drop_generation(generation);
+    fn drop_generation(&self, generation: u64) -> Result<(), ApiError> {
+        if self
+            .interrupted
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            self.inner.drop_generation(generation)
+        } else {
+            Err(ApiError::ServiceUnavailable)
         }
-        self.interrupted = true;
     }
 }
 
@@ -843,14 +907,17 @@ impl ItemShelf for InterruptedShelf {
 
 #[test]
 fn the_checker_notices_a_shelf_that_loses_items() {
-    let scenario = &scenarios::<LossyShelf>()[0];
+    let scenario = &scenarios::<LossyShelf, MemoryLedger>()[0];
     let clock = ManualClock::at(1_000);
-    let mut engine = Engine::new(
+    let mut engine = Engine::open(
         LossyShelf::default(),
+        MemoryLedger::default(),
+        WorkspaceId::generate(&mut SeededRandom::new(2)),
         Arc::new(clock),
         Box::new(SeededRandom::new(1)),
         limits(),
-    );
+    )
+    .unwrap();
     let mut ctx = Ctx::default();
     let expect = Expect {
         must: ["two".to_owned()].into(),
@@ -865,26 +932,29 @@ fn the_checker_notices_a_shelf_that_loses_items() {
 
 #[test]
 fn the_checker_notices_a_shelf_that_keeps_dropped_generations() {
-    let all = scenarios::<HoardingShelf>();
+    let all = scenarios::<HoardingShelf, MemoryLedger>();
     let scenario = all
         .iter()
         .find(|scenario| scenario.name == "rotate")
         .unwrap();
-    let (mut engine, clock, mut expect) = prepare(HoardingShelf::default(), scenario);
+    let (mut engine, clock, mut expect) = prepare(
+        (HoardingShelf::default(), MemoryLedger::default()),
+        scenario,
+    );
     let mut ctx = Ctx::default();
     for index in 0..scenario.steps.len() {
         run_step(scenario, index, &mut ctx, &mut engine, &clock, &expect);
     }
     expect.must.extend(expect.may.clone());
     clock.advance(STAGING + 1);
-    engine.clean_staging();
+    engine.clean_staging().unwrap();
     let err = check_settled(&engine, &expect).unwrap_err();
     assert!(err.contains("nothing points to it"), "{err}");
 }
 
 #[test]
 fn every_scenario_survives_a_client_that_stops_or_repeats_at_every_request() {
-    let (variants, requests) = run_everything(MemoryShelf::default);
+    let (variants, requests) = run_everything(|| (MemoryShelf::default(), MemoryLedger::default()));
     println!(
         "model test: {variants} variants over {requests} requests in 9 scenarios, I1 to I5 after every request"
     );
@@ -896,6 +966,36 @@ fn every_scenario_survives_a_client_that_stops_or_repeats_at_every_request() {
 
 #[test]
 fn the_janitor_finishes_a_clean_up_that_was_cut_short() {
-    let (variants, _) = run_everything(InterruptedShelf::default);
+    let (variants, _) = run_everything(|| (InterruptedShelf::default(), MemoryLedger::default()));
     println!("model test, interrupted clean-up: {variants} variants");
+}
+
+#[test]
+fn every_scenario_survives_over_the_filesystem_and_sqlite() {
+    // PLAN-00002, REQ-07: the same variants, the same checker, the real
+    // stores. Each variant gets a directory of its own below one that is
+    // removed when the test ends.
+    use passalong_server_core::ledger::SqliteLedger;
+    use passalong_server_core::shelf::FsShelf;
+    let parent = tempfile::tempdir().unwrap();
+    let next = std::sync::atomic::AtomicU64::new(0);
+    let started = std::time::Instant::now();
+    let (variants, requests) = run_everything(|| {
+        let dir = parent.path().join(
+            next.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                .to_string(),
+        );
+        let shelf = FsShelf::open(dir.join("workspace")).unwrap();
+        let ledger = SqliteLedger::open(
+            dir.join("control.sqlite"),
+            std::time::Duration::from_secs(5),
+        )
+        .unwrap();
+        (shelf, ledger)
+    });
+    println!(
+        "model test, filesystem and SQLite: {variants} variants over {requests} requests in {:.1} s",
+        started.elapsed().as_secs_f32()
+    );
+    assert!(variants >= 210);
 }
