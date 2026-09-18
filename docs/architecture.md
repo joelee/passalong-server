@@ -1,7 +1,9 @@
 # Architecture
 
-> **Draft for discussion.** Nothing here is implemented. This document
-> records the design proposed by
+> **Draft for discussion.** No server exists yet. The rules of workspaces,
+> uploads, and rewrite sessions are implemented and tested as an in-memory
+> model in `passalong-server-core` (PLAN-00001); everything around them is
+> still the design proposed by
 > [IDEA-00001](ideas/00001-HTTPS_Server_Backend-r03.md) and becomes the
 > description of the real system as plans deliver it.
 
@@ -173,9 +175,10 @@ second upload.
     ├── gen-<n>/items/<id>/
     │   ├── content                byte-identical to the client's file
     │   └── meta.json              byte-identical to the client's file
-    ├── plain/items/               after a fresh start: the earlier items
+    ├── (the plain partition)      after a fresh start: a pointer to the
+    │                              generation that held the earlier items
     ├── staging/<upload id>/       uploads in progress
-    └── rewrite/<session id>/      the next generation, being staged
+    └── gen-<n+1>/                 during a rewrite: the next generation
 ```
 
 The filesystem is the only record of items. The control database holds
@@ -214,39 +217,46 @@ header check before and after every `put`.
 stateDiagram-v2
   direction LR
   [*] --> Plaintext: workspace create
-  Plaintext --> Sealed: enableEncryption
-  Plaintext --> Rewriting: beginRewrite MIGRATE / FRESH_START
+  Plaintext --> Sealed: enableEncryption / freshStart
+  Plaintext --> Rewriting: beginRewrite migrate
   Sealed --> Sealed: replaceHeader
-  Sealed --> Rewriting: beginRewrite ROTATE
+  Sealed --> Rewriting: beginRewrite rotate
   Rewriting --> Rewriting: heartbeat / takeOver
   Rewriting --> Sealed: commitRewrite
-  Rewriting --> Sealed: abortRewrite (ROTATE)
-  Rewriting --> Plaintext: abortRewrite (MIGRATE, FRESH_START)
+  Rewriting --> Sealed: abortRewrite (rotate)
+  Rewriting --> Plaintext: abortRewrite (migrate)
 
   note right of Rewriting
     Writers are refused with REWRITE_IN_PROGRESS.
-    The session's client stages generation N+1.
+    The holder stages generation N+1.
     commit is one transaction, generation
     pointer + header + key id. abort drops N+1.
-    When the lease expires, another device
+    When the lease ends, another device
     takes over, then resumes or aborts.
   end note
 ```
 
-- `enableEncryption` is accepted only while the workspace is empty.
+- `enableEncryption` is accepted only while the workspace is empty;
+  `freshStart` sets the items aside as the `plain` partition instead. Both
+  are single atomic calls, like `replaceHeader`: in the client, too, set-up,
+  a fresh start, and a change of words re-encrypt nothing, and only
+  migration and rotation run its rewrite engine (PLAN-00001, D-02).
 - `replaceHeader` is the change of words: the same data key wrapped anew,
   guarded by `expectedKeyId`; no item is touched.
+- A `beginRewrite` that names the new key id of an aborted rewrite is
+  refused with `REWRITE_ENDED`: it is a late duplicate, which would
+  otherwise open a session nobody holds. The model test found this.
 
 | Client command | Server operations |
 |---|---|
 | `encrypt` on an empty plaintext workspace | `enableEncryption` |
-| `encrypt` fresh start | `beginRewrite(FRESH_START)`, `commitRewrite`: an empty generation; the old one becomes the `PLAIN` partition |
-| `encrypt` migration | `beginRewrite(MIGRATE)`, then for each item: download, seal, upload into the session; `commitRewrite` |
+| `encrypt` fresh start | `freshStart`: one atomic call; the current generation becomes the `plain` partition by moving a pointer |
+| `encrypt` migration | `beginRewrite(migrate)`, then for each item: download, seal, upload with `inRewrite`; `commitRewrite` |
 | `encrypt` change of words | `replaceHeader` with the same key id |
-| `encrypt --rotate` | `beginRewrite(ROTATE)`, re-seal each item, `commitRewrite` |
+| `encrypt --rotate` | `beginRewrite(rotate)`, re-seal each item, `commitRewrite` |
 | `encrypt --join` | `getWorkspace`: read `encryption.header` |
 | `encrypt --recover` | `getRewrite`; `takeOverRewrite` if its lease expired; then resume it, or `abortRewrite` |
-| `prune --plain` | list and delete in the `PLAIN` partition |
+| `prune --plain` | list and delete with `partition=plain` |
 
 Operation names are the `operationId`s of [the API draft](api/README.md).
 The full session ships in server v0.1, by the user's decision of 2026-09-18;
@@ -254,6 +264,9 @@ doing migration and rotation on a `local` or `ssh` store and importing the
 result is the fallback if the spike fails (IDEA-00001 §11, option E). Every
 session request can be repeated: above all, a `commitRewrite` whose answer
 was lost tells the client that the commit happened.
+
+[The rewrite session](api/rewrite-session.md) has the crash table, the
+replay table, and the invariants the model test checks after every request.
 
 The session is the journal. Staged items are skipped on resume because ids
 in the new generation are computed from each item's recorded SHA-256, as in

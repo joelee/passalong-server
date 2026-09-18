@@ -9,9 +9,12 @@ Future work not covered by an active plan. Completed items are removed.
   spike of its §14, then accept, revise, or park it.
 - **PLAN-00001**, once the idea is accepted: the server with parity for
   passalong client v0.2.1, its Docker image, and its systemd unit.
-- **Protocol spike** (IDEA-00001 r03, §14): `docs/api/openapi.json` in
-  full, the rewrite-session model test with replays, the client-side
-  `EncryptionAdmin` sketch, and a default for `limits.max_item_bytes`.
+- **IDEA-00001 r04**: record the protocol spike's verdict (PLAN-00001) and
+  the user's decision to accept, revise, or park the idea.
+- **Read-back of staged items** (`partition=staged` for the session's
+  holder), so the client can verify a re-encrypted item before it commits,
+  as it does today; see `docs/api/client-encryption-mapping.md`, "One gap".
+  A decision for the user; not in `openapi.json` yet.
 
 ### Unscheduled
 - An open-source licence. Until then nothing is published.

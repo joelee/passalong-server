@@ -23,15 +23,20 @@ cert_file = "/etc/passalong-server/tls/cert.pem"
 key_file = "/etc/passalong-server/tls/key.pem"
 
 [limits]
-# Largest single item, or "unlimited". Uploads stream to disk, so this is
-# not memory. The passalong client and its ssh and local backends have no
-# limit, so this one is the server's alone. PLACEHOLDER: the default is
-# decided by the spike of IDEA-00001.
+# Largest single item, or "unlimited", the default. Uploads stream to disk,
+# so this is not memory. The quota is the real bound: an upload is refused
+# when it begins unless it fits. Set a size only to keep one item from
+# taking a whole workspace; docs/configuration.md has the reasoning.
 max_item_bytes = "unlimited"
 # Default quota of a new workspace; `workspace create --quota` overrides it.
 workspace_quota_bytes = "20 GiB"
 # Failed authentications per client address per minute before 429.
 auth_failures_per_minute = 10
+
+[rewrite]
+# How long a rewrite session (encrypt migration or --rotate) stays its
+# holder's without a heartbeat, before another device may take it over.
+lease_secs = 600
 
 [staging]
 # Uploads and rewrite sessions nobody finished are removed after this long.

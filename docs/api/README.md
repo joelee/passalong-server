@@ -1,9 +1,14 @@
 # API (draft)
 
 > **Draft for discussion**, from
-> [IDEA-00001](../ideas/00001-HTTPS_Server_Backend-r03.md). Once the routes
-> exist in code, `openapi.json` in this folder is exported from them and a
-> test fails when the two differ.
+> [IDEA-00001](../ideas/00001-HTTPS_Server_Backend-r03.md), as the protocol
+> spike (PLAN-00001) left it. [`openapi.json`](openapi.json) is the formal
+> document; a test keeps its operations and error codes equal to the tables
+> here. Once the routes exist in code it is exported from them instead.
+> [The rewrite session](rewrite-session.md) explains encryption changes,
+> crashes, and replays; the
+> [client mapping](client-encryption-mapping.md) shows what replaces each
+> function of the client's encryption code.
 
 This folder is the contract between passalong-server and the passalong
 client. The client implements it from these documents alone; it shares no
@@ -62,7 +67,7 @@ before a fresh start.
 | `listItemIds` | `GET /v1/item-ids?after=<id>&partition=` | Ids alone, from the in-memory index; what pull mode polls |
 | `getItem` | `GET /v1/items/{id}?partition=` | One envelope |
 | `getItemContent` | `GET /v1/items/{id}/content?partition=` | The bytes; supports `Range` |
-| `findByContentKey` | `GET /v1/items?contentKey=<12 hex>` | The oldest item with that content key, or an empty list |
+| `findByContentKey` | `GET /v1/content-keys/{contentKey}` | The oldest item with that content key, or `NOT_FOUND` |
 | `resolveItem` | `GET /v1/items/resolve?input=<text>` | The client's prefix rules, on ids alone, so it works for sealed workspaces. Answers `resolved`, `ambiguous` with candidates, `notFound`, or `invalidPrefix` |
 | `deleteItem` | `DELETE /v1/items/{id}?partition=&expectedKeyId=` | Answers the deleted envelope |
 
@@ -85,52 +90,56 @@ because JSON numbers lose precision above 2^53 and item sizes are `u64`.
 
 | Operation | Route | Notes |
 |---|---|---|
-| `beginUpload` | `POST /v1/uploads` | `{ id, meta, size, expectedKeyId, rewriteSessionId }`. 201 with an upload ticket (`uploadId`, `expiresAt`), or 200 with a put outcome when the content is already stored |
+| `beginUpload` | `POST /v1/uploads` | `{ id, meta, size, expectedKeyId, inRewrite }`. 201 with an upload ticket (`uploadId`, `expiresAt`), or 200 with a put outcome when the content is already stored |
 | `putUploadContent` | `PUT /v1/uploads/{uploadId}/content` | The bytes; `Content-Length` must equal `size`. 204 |
 | `commitUpload` | `POST /v1/uploads/{uploadId}/commit` | Verifies, deduplicates, publishes. Answers the put outcome: `{ item, created }` |
 | `abortUpload` | `DELETE /v1/uploads/{uploadId}` | 204 |
 
-`expectedKeyId` is `null` for a plaintext workspace. `rewriteSessionId` is
-set only while staging a rewrite's next generation.
+`expectedKeyId` is `null` for a plaintext workspace. `inRewrite` is `true`
+only while staging a rewrite's next generation; `expectedKeyId` is then the
+session's new key id, which is what identifies the session. Such uploads
+count against an allowance of their own, as large as the quota, not against
+the quota: a rotation needs room for a second copy of every item, and a
+full workspace must still be able to change its key.
 
 ### Encryption
 
 | Operation | Route | Notes |
 |---|---|---|
 | `enableEncryption` | `PUT /v1/workspace/encryption` | `{ header, keyId }`; only while the workspace is empty |
+| `freshStart` | `POST /v1/workspace/encryption/fresh-start` | `{ header, keyId }`; seals a plaintext workspace without re-encrypting anything: its items become the `plain` partition in one step |
 | `replaceHeader` | `PUT /v1/workspace/encryption/header` | `{ expectedKeyId, header }`; the change of words: same data key, no item touched |
-| `beginRewrite` | `POST /v1/rewrite` | `{ kind, expectedKeyId, newKeyId, newHeader }`; `kind` is `migrate`, `freshStart`, or `rotate`. Takes the lease; other writers now get `REWRITE_IN_PROGRESS` |
+| `beginRewrite` | `POST /v1/rewrite` | `{ kind, expectedKeyId, newKeyId, newHeader }`; `kind` is `migrate` or `rotate`. Takes the lease; other writers now get `REWRITE_IN_PROGRESS` |
 | `getRewrite` | `GET /v1/rewrite` | The open session: kind, holder, `leaseExpiresAt`, and the ids already staged |
 | `heartbeatRewrite` | `POST /v1/rewrite/heartbeat` | Extends the lease |
 | `takeOverRewrite` | `POST /v1/rewrite/take-over` | Only once the lease expired; for `encrypt --recover` from another device |
-| `commitRewrite` | `POST /v1/rewrite/commit` | One transaction: generation pointer, header, key id |
-| `abortRewrite` | `POST /v1/rewrite/abort` | Drops the staged generation |
+| `commitRewrite` | `POST /v1/rewrite/commit` | `{ newKeyId }`. One transaction: generation pointer, header, key id. Refused with `REWRITE_INCOMPLETE` unless as many items are staged as the workspace holds |
+| `abortRewrite` | `POST /v1/rewrite/abort` | `{ newKeyId }`. Drops the staged generation; the workspace is what it was before `beginRewrite` |
 
 A workspace has at most one rewrite session, so the routes name none.
+`commitRewrite` and `abortRewrite` name the new key id instead: it lets a
+replay be recognised after the session is gone, and keeps a stale request
+from ending a session it does not mean.
 
 ## Replays
 
-A proposal, to be confirmed by the spike of IDEA-00001 §14
-(IDEA-00001-R03-MAJ-01 and -MED-05). The upload id is the idempotency key of
-an upload; a rewrite needs none, because a workspace has one session.
+Every request may be sent again, and a client that lost an answer does
+exactly that. The upload id is the idempotency key of an upload. A rewrite
+needs none, because a workspace has one session and its requests name the
+new key id. [The rewrite session](rewrite-session.md#replays) has the full
+table, which the model test enforces; each operation's
+`x-passalong-replay` in `openapi.json` says the same. The three that matter
+most:
 
-| Request, sent again | Answer |
-|---|---|
-| `beginUpload`, same API key, same `id` and `size`, ticket still live | The same ticket; quota is not reserved twice |
-| `beginUpload` for content already stored | The put outcome with `created: false`, as the first time |
-| `putUploadContent` before commit | The staging file is truncated and written again |
-| `putUploadContent` after commit | 204; the body is discarded |
-| `commitUpload` after it succeeded, within the retention window | The **same** put outcome, including the original `created` value |
-| `commitUpload` after the retention window | `NOT_FOUND`; the client settles it with `getItem`: it proposed the id, so it knows it |
-| `abortUpload` of something already gone | 204 |
-| `deleteItem` of something already gone | `NOT_FOUND`, which the client treats as done |
-| `enableEncryption`, `replaceHeader` whose effect is already in place | The current encryption state, not an error |
-| `beginRewrite` by the key that holds the session, same arguments | The live session |
-| `commitRewrite` after it succeeded | The current encryption state, recognised by `newKeyId`. This is the replay that matters most: a client that lost the answer must learn that the commit happened, not conclude that it has to start again |
-| `abortRewrite` with no session open | The current encryption state |
-
-A committed upload leaves a tombstone holding its outcome for the retention
-window, which is at least `staging.max_age_hours`.
+- `commitUpload` sent again answers the **same** outcome, with the original
+  `created`, for at least `staging.max_age_hours`; after that `NOT_FOUND`,
+  which the client settles with `getItem`, since it proposed the id.
+- `commitRewrite` sent again after it succeeded answers the state it
+  produced, so a client that lost the answer learns that the commit
+  happened.
+- `beginRewrite` sent again after its rewrite was aborted is refused with
+  `REWRITE_ENDED`, for good. Otherwise a late duplicate would open a
+  session nobody holds.
 
 ## Error codes
 
@@ -141,7 +150,9 @@ window, which is at least `staging.max_age_hours`.
 | `FORBIDDEN_ROLE` | 403 | A read-only key tried to write | No |
 | `KEY_ID_MISMATCH` | 409 | The workspace's data key changed; the device must `encrypt --join` | No, until joined |
 | `REWRITE_IN_PROGRESS` | 409 | Encryption is being changed | Yes, with back-off |
-| `LEASE_HELD` | 409 | `takeOverRewrite` before the lease expired | Yes, after `leaseExpiresAt` |
+| `LEASE_HELD` | 409 | Another key holds the rewrite session: `takeOverRewrite` before the lease ended, or any session request from a former holder | Yes, after `leaseExpiresAt` |
+| `REWRITE_INCOMPLETE` | 409 | `commitRewrite` before every item was staged | No; stage the rest first |
+| `REWRITE_ENDED` | 409 | `beginRewrite` names the new key id of a rewrite that was aborted: a duplicate of an old request | No; begin again under a new key |
 | `QUOTA_EXCEEDED` | 413 | The workspace is full | No |
 | `ITEM_TOO_LARGE` | 413 | Larger than `maxItemBytes`; a limit the other backends do not have, so the client names it and the limit in its message | No |
 | `CONTENT_MISMATCH` | 422 | Size or, in a plaintext workspace, SHA-256 differs from `meta` | No |

@@ -1,0 +1,1762 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "passalong-server API",
+    "version": "1.0.0-draft",
+    "summary": "The contract between passalong-server and the passalong client.",
+    "description": "Draft of the protocol spike (PLAN-00001). REST + JSON; item content travels as byte streams. The server never interprets an item's `meta` and never exposes a field taken from it. Every request is safe to repeat: each operation that is not a GET says in `x-passalong-replay` what the same request, sent again, is answered. `x-passalong-errors` lists the codes an operation can refuse with. See README.md and rewrite-session.md beside this file."
+  },
+  "servers": [
+    {
+      "url": "https://pass.example.net:8443"
+    }
+  ],
+  "security": [
+    {
+      "apiKey": []
+    }
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "healthz",
+        "summary": "Liveness: the process runs.",
+        "responses": {
+          "204": {
+            "description": "Done"
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [],
+        "security": []
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "readyz",
+        "summary": "Readiness: the control database and the data directory are usable. Fails, while `healthz` stays up, when the server is failing closed.",
+        "responses": {
+          "204": {
+            "description": "Done"
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "SERVICE_UNAVAILABLE"
+        ],
+        "security": []
+      }
+    },
+    "/v1/viewer": {
+      "get": {
+        "operationId": "getViewer",
+        "summary": "The API key in use, and the server.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Viewer"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_REVOKED",
+          "RATE_LIMITED",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ]
+      }
+    },
+    "/v1/workspace": {
+      "get": {
+        "operationId": "getWorkspace",
+        "summary": "The workspace the key belongs to, with its encryption state and header. `passalong encrypt --join` reads the header here.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_REVOKED",
+          "RATE_LIMITED",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ]
+      }
+    },
+    "/v1/workspace/probe": {
+      "post": {
+        "operationId": "probeWrite",
+        "summary": "Checks that the key may write, that no rewrite is open, and that staging is writable, without storing an item.",
+        "responses": {
+          "204": {
+            "description": "Done"
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "FORBIDDEN_ROLE",
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_REVOKED",
+          "RATE_LIMITED",
+          "REWRITE_IN_PROGRESS",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ],
+        "x-passalong-replay": "Safe to repeat: it changes nothing."
+      }
+    },
+    "/v1/workspace/clean-staging": {
+      "post": {
+        "operationId": "cleanStaging",
+        "summary": "Forgets expired uploads and outcomes, and removes what interrupted changes left behind. The janitor does the same unasked.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CleanStagingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CleanStagingResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "FORBIDDEN_ROLE",
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_REVOKED",
+          "RATE_LIMITED",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ],
+        "x-passalong-replay": "Safe to repeat: a second pass finds nothing."
+      }
+    },
+    "/v1/workspace/encryption": {
+      "put": {
+        "operationId": "enableEncryption",
+        "summary": "Seals an empty plaintext workspace.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SealRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Encryption"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "FORBIDDEN_ROLE",
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_ID_MISMATCH",
+          "KEY_REVOKED",
+          "RATE_LIMITED",
+          "REWRITE_IN_PROGRESS",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ],
+        "x-passalong-replay": "With the same key id: the state already produced. With another key id: KEY_ID_MISMATCH."
+      }
+    },
+    "/v1/workspace/encryption/fresh-start": {
+      "post": {
+        "operationId": "freshStart",
+        "summary": "Seals a plaintext workspace without re-encrypting anything: its items become the `plain` partition, in one step.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SealRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Encryption"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "FORBIDDEN_ROLE",
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_ID_MISMATCH",
+          "KEY_REVOKED",
+          "RATE_LIMITED",
+          "REWRITE_IN_PROGRESS",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ],
+        "x-passalong-replay": "With the same key id: the state already produced, and nothing else is set aside. With another key id: KEY_ID_MISMATCH."
+      }
+    },
+    "/v1/workspace/encryption/header": {
+      "put": {
+        "operationId": "replaceHeader",
+        "summary": "The change of words: the same data key, wrapped anew. No item is touched.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceHeaderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Encryption"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "FORBIDDEN_ROLE",
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_ID_MISMATCH",
+          "KEY_REVOKED",
+          "RATE_LIMITED",
+          "REWRITE_IN_PROGRESS",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ],
+        "x-passalong-replay": "Writes the same header again."
+      }
+    },
+    "/v1/items": {
+      "get": {
+        "operationId": "listItems",
+        "summary": "Items, newest first, each with its opaque `meta`.",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ItemId"
+            },
+            "description": "Only items newer than this id."
+          },
+          {
+            "name": "partition",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "current",
+                "plain"
+              ],
+              "default": "current"
+            },
+            "description": "`plain`: the plaintext items a fresh start set aside."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Item"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_REVOKED",
+          "RATE_LIMITED",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ]
+      }
+    },
+    "/v1/item-ids": {
+      "get": {
+        "operationId": "listItemIds",
+        "summary": "Ids alone, newest first, from the in-memory index. What pull mode polls.",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ItemId"
+            },
+            "description": "Only items newer than this id."
+          },
+          {
+            "name": "partition",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "current",
+                "plain"
+              ],
+              "default": "current"
+            },
+            "description": "`plain`: the plaintext items a fresh start set aside."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ItemId"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_REVOKED",
+          "RATE_LIMITED",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ]
+      }
+    },
+    "/v1/items/resolve": {
+      "get": {
+        "operationId": "resolveItem",
+        "summary": "Turns what a user typed into one item id, by the client's prefix rules. Works on ids alone, so also in an encrypted workspace.",
+        "parameters": [
+          {
+            "name": "input",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_REVOKED",
+          "RATE_LIMITED",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ]
+      }
+    },
+    "/v1/content-keys/{contentKey}": {
+      "get": {
+        "operationId": "findByContentKey",
+        "summary": "The oldest item with that content key.",
+        "parameters": [
+          {
+            "name": "contentKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{12}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Item"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "INVALID_ID",
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_REVOKED",
+          "NOT_FOUND",
+          "RATE_LIMITED",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ]
+      }
+    },
+    "/v1/items/{id}": {
+      "get": {
+        "operationId": "getItem",
+        "summary": "One item's envelope.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ItemId"
+            }
+          },
+          {
+            "name": "partition",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "current",
+                "plain"
+              ],
+              "default": "current"
+            },
+            "description": "`plain`: the plaintext items a fresh start set aside."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Item"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "INVALID_ID",
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_REVOKED",
+          "NOT_FOUND",
+          "RATE_LIMITED",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteItem",
+        "summary": "Deletes an item and answers what it was.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ItemId"
+            }
+          },
+          {
+            "name": "partition",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "current",
+                "plain"
+              ],
+              "default": "current"
+            },
+            "description": "`plain`: the plaintext items a fresh start set aside."
+          },
+          {
+            "name": "expectedKeyId",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/KeyId"
+            },
+            "description": "The workspace's current key id; absent for a plaintext workspace."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Item"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "FORBIDDEN_ROLE",
+          "INVALID_ID",
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_ID_MISMATCH",
+          "KEY_REVOKED",
+          "NOT_FOUND",
+          "RATE_LIMITED",
+          "REWRITE_IN_PROGRESS",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ],
+        "x-passalong-replay": "NOT_FOUND, which the client treats as done."
+      }
+    },
+    "/v1/items/{id}/content": {
+      "get": {
+        "operationId": "getItemContent",
+        "summary": "The item's bytes: plaintext, or sealed by the client.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ItemId"
+            }
+          },
+          {
+            "name": "partition",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "current",
+                "plain"
+              ],
+              "default": "current"
+            },
+            "description": "`plain`: the plaintext items a fresh start set aside."
+          },
+          {
+            "name": "Range",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The content",
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "206": {
+            "description": "Part of the content",
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "INVALID_ID",
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_REVOKED",
+          "NOT_FOUND",
+          "RATE_LIMITED",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ]
+      }
+    },
+    "/v1/uploads": {
+      "post": {
+        "operationId": "beginUpload",
+        "summary": "Announces an item. Reserves quota and answers a ticket, or the stored item when the content is there already.",
+        "description": "With `inRewrite`, the upload stages an item of the open rewrite's next generation: the caller must hold the session, `expectedKeyId` must be its new key id, and the quota does not apply. NOT_FOUND then means that no rewrite is open.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BeginUploadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Send the content, then commit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadTicket"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The content is stored already; there is nothing to send",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutOutcome"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "FORBIDDEN_ROLE",
+          "INVALID_ID",
+          "INVALID_REQUEST",
+          "ITEM_TOO_LARGE",
+          "KEY_EXPIRED",
+          "KEY_ID_MISMATCH",
+          "KEY_REVOKED",
+          "LEASE_HELD",
+          "NOT_FOUND",
+          "QUOTA_EXCEEDED",
+          "RATE_LIMITED",
+          "REWRITE_IN_PROGRESS",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ],
+        "x-passalong-replay": "By the same key with the same request while the ticket lives: the same ticket, and nothing more is reserved."
+      }
+    },
+    "/v1/uploads/{uploadId}/content": {
+      "put": {
+        "operationId": "putUploadContent",
+        "summary": "The item's bytes. `Content-Length` must equal the announced size.",
+        "parameters": [
+          {
+            "name": "uploadId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UploadId"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {}
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Done"
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "INVALID_ID",
+          "INVALID_REQUEST",
+          "ITEM_TOO_LARGE",
+          "KEY_EXPIRED",
+          "KEY_REVOKED",
+          "NOT_FOUND",
+          "RATE_LIMITED",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ],
+        "x-passalong-replay": "Before the commit: replaces what was sent. After it: 204, and the content is discarded."
+      }
+    },
+    "/v1/uploads/{uploadId}/commit": {
+      "post": {
+        "operationId": "commitUpload",
+        "summary": "Checks the size, deduplicates by content key, and publishes, under the workspace lock.",
+        "parameters": [
+          {
+            "name": "uploadId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UploadId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutOutcome"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "CONTENT_MISMATCH",
+          "FORBIDDEN_ROLE",
+          "INVALID_ID",
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_ID_MISMATCH",
+          "KEY_REVOKED",
+          "LEASE_HELD",
+          "NOT_FOUND",
+          "RATE_LIMITED",
+          "REWRITE_IN_PROGRESS",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ],
+        "x-passalong-replay": "The same outcome, with the original `created`, for at least staging.max_age_hours. After that NOT_FOUND, which the client settles with getItem: it proposed the id."
+      }
+    },
+    "/v1/uploads/{uploadId}": {
+      "delete": {
+        "operationId": "abortUpload",
+        "summary": "Gives an upload up and frees its reservation.",
+        "parameters": [
+          {
+            "name": "uploadId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UploadId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Done"
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "INVALID_ID",
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_REVOKED",
+          "RATE_LIMITED",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ],
+        "x-passalong-replay": "204, whether or not there was anything to abort."
+      }
+    },
+    "/v1/rewrite": {
+      "get": {
+        "operationId": "getRewrite",
+        "summary": "The open rewrite session.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RewriteSession"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_REVOKED",
+          "NOT_FOUND",
+          "RATE_LIMITED",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ]
+      },
+      "post": {
+        "operationId": "beginRewrite",
+        "summary": "Takes the lease and opens an empty next generation. Ordinary writers get REWRITE_IN_PROGRESS from here; readers keep reading.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RewriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RewriteSession"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "FORBIDDEN_ROLE",
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_ID_MISMATCH",
+          "KEY_REVOKED",
+          "RATE_LIMITED",
+          "REWRITE_ENDED",
+          "REWRITE_IN_PROGRESS",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ],
+        "x-passalong-replay": "By the holder with the same kind and new key id: the live session, lease renewed. After that rewrite was committed: KEY_ID_MISMATCH. After it was aborted: REWRITE_ENDED, for good; begin again under a new key."
+      }
+    },
+    "/v1/rewrite/heartbeat": {
+      "post": {
+        "operationId": "heartbeatRewrite",
+        "summary": "The holder renews its lease.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RewriteSession"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "FORBIDDEN_ROLE",
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_REVOKED",
+          "LEASE_HELD",
+          "NOT_FOUND",
+          "RATE_LIMITED",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ],
+        "x-passalong-replay": "The session, lease renewed."
+      }
+    },
+    "/v1/rewrite/take-over": {
+      "post": {
+        "operationId": "takeOverRewrite",
+        "summary": "Once the lease has ended, another key becomes the holder, to resume or abort. `passalong encrypt --recover` from a second device.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RewriteSession"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "FORBIDDEN_ROLE",
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_REVOKED",
+          "LEASE_HELD",
+          "NOT_FOUND",
+          "RATE_LIMITED",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ],
+        "x-passalong-replay": "For the holder it is a heartbeat."
+      }
+    },
+    "/v1/rewrite/commit": {
+      "post": {
+        "operationId": "commitRewrite",
+        "summary": "Generation, header, and key id change together, in one transaction.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EndRewriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Encryption"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "FORBIDDEN_ROLE",
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_ID_MISMATCH",
+          "KEY_REVOKED",
+          "LEASE_HELD",
+          "NOT_FOUND",
+          "RATE_LIMITED",
+          "REWRITE_INCOMPLETE",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ],
+        "x-passalong-replay": "After it succeeded, for anyone naming the new key id: the state it produced, so a client that lost the answer learns that the commit happened. NOT_FOUND when no session is open and the workspace is not under that key."
+      }
+    },
+    "/v1/rewrite/abort": {
+      "post": {
+        "operationId": "abortRewrite",
+        "summary": "Drops the staged generation. The workspace is what it was before beginRewrite.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EndRewriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Encryption"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "A refusal. `code` is stable; the client decides from it alone whether to retry.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "x-passalong-errors": [
+          "FORBIDDEN_ROLE",
+          "INVALID_REQUEST",
+          "KEY_EXPIRED",
+          "KEY_ID_MISMATCH",
+          "KEY_REVOKED",
+          "LEASE_HELD",
+          "RATE_LIMITED",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ],
+        "x-passalong-replay": "With no session open: the current state, which also shows a caller whose rewrite someone else committed that it was."
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "apiKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "pal_<key id>_<secret>",
+        "description": "The key selects the workspace; no request names one."
+      }
+    },
+    "schemas": {
+      "ItemId": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{12}$",
+        "description": "`<creation time>-<content key>`, as in the passalong client's item schema. Proposed by the client; parsed strictly."
+      },
+      "KeyId": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{1,64}$",
+        "description": "The id of a workspace's data key. The server compares key ids and never sees a key."
+      },
+      "UploadId": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{32}$",
+        "description": "An upload's id, and its idempotency key."
+      },
+      "Bytes": {
+        "type": "string",
+        "pattern": "^[0-9]+$",
+        "description": "A byte count, as a string: item sizes are 64-bit and JSON numbers are not."
+      },
+      "Opaque": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "A document the client wrote and the server never looks into."
+      },
+      "Item": {
+        "type": "object",
+        "required": [
+          "id",
+          "meta",
+          "storedBytes",
+          "receivedAt"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ItemId"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Opaque"
+          },
+          "storedBytes": {
+            "$ref": "#/components/schemas/Bytes"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "The envelope: what the server knows of an item. `meta` is the client's `meta.json`, byte for byte."
+      },
+      "PutOutcome": {
+        "type": "object",
+        "required": [
+          "item",
+          "created"
+        ],
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/Item"
+          },
+          "created": {
+            "type": "boolean",
+            "description": "`false` when identical content was stored already."
+          }
+        }
+      },
+      "UploadTicket": {
+        "type": "object",
+        "required": [
+          "uploadId",
+          "expiresAt"
+        ],
+        "properties": {
+          "uploadId": {
+            "$ref": "#/components/schemas/UploadId"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "BeginUploadRequest": {
+        "type": "object",
+        "required": [
+          "id",
+          "meta",
+          "size"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ItemId"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Opaque"
+          },
+          "size": {
+            "$ref": "#/components/schemas/Bytes"
+          },
+          "expectedKeyId": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/KeyId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "inRewrite": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "SealRequest": {
+        "type": "object",
+        "required": [
+          "header",
+          "keyId"
+        ],
+        "properties": {
+          "header": {
+            "$ref": "#/components/schemas/Opaque"
+          },
+          "keyId": {
+            "$ref": "#/components/schemas/KeyId"
+          }
+        }
+      },
+      "ReplaceHeaderRequest": {
+        "type": "object",
+        "required": [
+          "expectedKeyId",
+          "header"
+        ],
+        "properties": {
+          "expectedKeyId": {
+            "$ref": "#/components/schemas/KeyId"
+          },
+          "header": {
+            "$ref": "#/components/schemas/Opaque"
+          }
+        }
+      },
+      "RewriteRequest": {
+        "type": "object",
+        "required": [
+          "kind",
+          "newKeyId",
+          "newHeader"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "migrate",
+              "rotate"
+            ]
+          },
+          "expectedKeyId": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/KeyId"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The current key id; null for the plaintext workspace a migration starts from."
+          },
+          "newKeyId": {
+            "$ref": "#/components/schemas/KeyId"
+          },
+          "newHeader": {
+            "$ref": "#/components/schemas/Opaque"
+          }
+        }
+      },
+      "EndRewriteRequest": {
+        "type": "object",
+        "required": [
+          "newKeyId"
+        ],
+        "properties": {
+          "newKeyId": {
+            "$ref": "#/components/schemas/KeyId"
+          }
+        }
+      },
+      "RewriteSession": {
+        "type": "object",
+        "required": [
+          "kind",
+          "holder",
+          "leaseExpiresAt",
+          "newKeyId",
+          "stagedIds",
+          "sourceItems"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "migrate",
+              "rotate"
+            ]
+          },
+          "holder": {
+            "type": "string",
+            "description": "The public id of the API key that holds the lease."
+          },
+          "leaseExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "newKeyId": {
+            "$ref": "#/components/schemas/KeyId"
+          },
+          "stagedIds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ItemId"
+            }
+          },
+          "sourceItems": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "Encryption": {
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "plaintext",
+              "sealed",
+              "rewriting"
+            ]
+          },
+          "keyId": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/KeyId"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "While a rewrite is open: still the key readers need, the one before it."
+          },
+          "header": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Opaque"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rewrite": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RewriteSession"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "Workspace": {
+        "type": "object",
+        "required": [
+          "name",
+          "quotaBytes",
+          "usedBytes",
+          "itemCount",
+          "encryption"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "quotaBytes": {
+            "$ref": "#/components/schemas/Bytes"
+          },
+          "usedBytes": {
+            "$ref": "#/components/schemas/Bytes"
+          },
+          "itemCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "encryption": {
+            "$ref": "#/components/schemas/Encryption"
+          }
+        }
+      },
+      "Viewer": {
+        "type": "object",
+        "required": [
+          "key",
+          "server"
+        ],
+        "properties": {
+          "key": {
+            "type": "object",
+            "required": [
+              "id",
+              "role"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "readWrite",
+                  "readOnly"
+                ]
+              },
+              "expiresAt": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "server": {
+            "type": "object",
+            "required": [
+              "version",
+              "apiVersion"
+            ],
+            "properties": {
+              "version": {
+                "type": "string"
+              },
+              "apiVersion": {
+                "type": "integer"
+              },
+              "maxItemBytes": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Bytes"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "null: no limit. The client checks it before it uploads, because its other backends have none."
+              }
+            }
+          }
+        }
+      },
+      "ResolveResult": {
+        "type": "object",
+        "required": [
+          "result"
+        ],
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "resolved",
+              "ambiguous",
+              "notFound",
+              "invalidPrefix"
+            ]
+          },
+          "id": {
+            "$ref": "#/components/schemas/ItemId"
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ItemId"
+            }
+          }
+        }
+      },
+      "CleanStagingRequest": {
+        "type": "object",
+        "required": [
+          "olderThanSecs"
+        ],
+        "properties": {
+          "olderThanSecs": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "CleanStagingResult": {
+        "type": "object",
+        "required": [
+          "removed"
+        ],
+        "properties": {
+          "removed": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ErrorCode": {
+        "type": "string",
+        "enum": [
+          "CONTENT_MISMATCH",
+          "FORBIDDEN_ROLE",
+          "INVALID_ID",
+          "INVALID_REQUEST",
+          "ITEM_TOO_LARGE",
+          "KEY_EXPIRED",
+          "KEY_ID_MISMATCH",
+          "KEY_REVOKED",
+          "LEASE_HELD",
+          "NOT_FOUND",
+          "QUOTA_EXCEEDED",
+          "RATE_LIMITED",
+          "REWRITE_ENDED",
+          "REWRITE_INCOMPLETE",
+          "REWRITE_IN_PROGRESS",
+          "SERVICE_UNAVAILABLE",
+          "UNAUTHENTICATED"
+        ]
+      },
+      "Problem": {
+        "type": "object",
+        "required": [
+          "code",
+          "status",
+          "title"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "leaseExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "RFC 9457 problem details, with a stable `code`."
+      }
+    }
+  }
+}

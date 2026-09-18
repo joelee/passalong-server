@@ -6,6 +6,13 @@ passalong client's.
 
 ## Unreleased
 
+- Protocol spike (PLAN-00001): the workspace, upload, and rewrite-session
+  rules as an in-memory model in `passalong-server-core`, with a model test
+  that interrupts and replays a client at every step; `docs/api/openapi.json`;
+  the mapping of the client's encryption code onto the API. Found and fixed
+  by the model test: a late duplicate of `beginRewrite` reopening an aborted
+  rewrite (`REWRITE_ENDED`). `limits.max_item_bytes` defaults to
+  `"unlimited"`; a fresh start is one atomic call.
 - Project scaffold: workspace, process documents, and the first idea report
   (IDEA-00001). No server functionality yet.
 - IDEA-00001 r02, after the review of r01, and the draft documents brought
