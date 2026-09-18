@@ -1,7 +1,7 @@
 # Usage
 
 > **Draft.** The commands below are the proposal of
-> [IDEA-00001](ideas/00001-HTTPS_Server_Backend-r01.md); none exists yet.
+> [IDEA-00001](ideas/00001-HTTPS_Server_Backend-r02.md); none exists yet.
 
 ## Commands
 
@@ -28,6 +28,27 @@ With Docker, run them inside the container:
 ```text
 docker compose exec server passalong-server key create --workspace home --label laptop --expires 90d
 ```
+
+The image runs as uid 10001, the owner of the data directory, and
+`docker compose exec` uses that user, so this needs no `--user`. Do not add
+`user:` to the compose file or `--user 0` to the command.
+
+## Who may run the commands
+
+Every command that touches the data directory refuses to run as any user
+but that directory's owner, root included:
+
+```text
+error: /var/lib/passalong-server belongs to passalong-server; run this as that user:
+  sudo -u passalong-server passalong-server key list
+```
+
+The server and the CLI share one database. A database or journal file
+created by root would lock the server out, and a server that cannot read
+its keys refuses every request rather than guess (see
+[Failing closed](architecture.md#failing-closed)). `service install` and
+`service remove` are the exceptions: they need root, and touch only systemd
+and the service user.
 
 ## On a device
 

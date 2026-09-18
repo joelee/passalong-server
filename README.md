@@ -6,7 +6,7 @@ store on an SSH server or in a local folder.
 
 > **Status: design.** The server is being prepared; there is nothing to run
 > yet. Start with the idea report,
-> [IDEA-00001](docs/ideas/00001-HTTPS_Server_Backend-r01.md), and the
+> [IDEA-00001](docs/ideas/00001-HTTPS_Server_Backend-r02.md), and the
 > [architecture draft](docs/architecture.md).
 
 ## What it will be

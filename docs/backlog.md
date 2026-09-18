@@ -10,7 +10,7 @@ Future work not covered by an active plan. Completed items are removed.
 - **PLAN-00001**, once the idea is accepted: the server with parity for
   passalong client v0.2.1, its Docker image, and its systemd unit.
 - **Licence terms or a private Docker Hub repository** before the first
-  public image (IDEA-00001-R01-MED-03).
+  public image (IDEA-00001-R02-MED-03).
 
 ### Unscheduled
 - An open-source licence.

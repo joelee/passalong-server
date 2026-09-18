@@ -1,7 +1,7 @@
 # Configuration
 
 > **Draft.** No code reads this configuration yet; the keys are the proposal
-> of [IDEA-00001](ideas/00001-HTTPS_Server_Backend-r01.md).
+> of [IDEA-00001](ideas/00001-HTTPS_Server_Backend-r02.md).
 > [`config.sample.toml`](../config.sample.toml) shows them with defaults.
 
 ## Where the file is found
@@ -27,10 +27,10 @@ Unknown keys are rejected, as in the client.
 | `listen.mode` | `tls` | `tls`, or `plain` behind a TLS-terminating proxy |
 | `listen.behind_proxy` | `false` | Required for `plain` on a non-loopback address; also makes the server trust `X-Forwarded-For` for rate limiting |
 | `tls.cert_file`, `tls.key_file` | none | PEM files, re-read when they change |
-| `limits.max_item_bytes` | `2 GiB` | Largest item |
+| `limits.max_item_bytes` | undecided | Largest item, or `"unlimited"`. The client and its other backends have no limit, so this one is the server's alone; the default is decided by the spike of IDEA-00001 §14. Clients read the value before they upload |
 | `limits.workspace_quota_bytes` | `20 GiB` | Quota of a new workspace |
 | `limits.auth_failures_per_minute` | `10` | Per client address, then `RATE_LIMITED` |
-| `staging.max_age_hours` | `24` | Age at which the janitor removes unfinished uploads |
+| `staging.max_age_hours` | `24` | Age at which the janitor removes unfinished uploads. Also the least time a committed upload's outcome is kept, so that a repeated `commitUpload` gets the same answer |
 
 ## Environment
 

@@ -2,7 +2,7 @@
 
 > **Draft for discussion.** Nothing here is implemented. This document
 > records the design proposed by
-> [IDEA-00001](ideas/00001-HTTPS_Server_Backend-r01.md) and becomes the
+> [IDEA-00001](ideas/00001-HTTPS_Server_Backend-r02.md) and becomes the
 > description of the real system as plans deliver it.
 
 passalong-server is a third place a passalong store can live, beside the
@@ -82,6 +82,9 @@ flowchart TB
    constant time, and rejects expired or revoked keys with a distinct,
    non-retryable error. It attaches the key's **workspace** and **role** to
    the request. No request names a workspace; the key is the only source.
+   Keys are checked against the database on every request, so a revocation
+   holds from the next request on. If the database cannot be read, the
+   server [fails closed](#failing-closed).
 4. A correlation id is opened for the request (the `X-Request-Id` the client
    sent, or a new one) and carried by every log line.
 5. The resolver or content handler calls `passalong-server-core`.
@@ -139,6 +142,19 @@ and deduplication is atomic because the check and the publish share the
 workspace lock. The janitor removes staging folders older than
 `staging.max_age_hours`.
 
+Every step can be repeated. The upload id is the idempotency key: a
+`beginUpload` sent again returns the live ticket without reserving quota
+twice, a `PUT` sent again restarts the staging file, and a `commitUpload`
+sent again returns the same outcome, from a tombstone the committed upload
+leaves behind. So a connection that drops after the server committed, but
+before the client heard, costs one small request, not a second upload. The
+[API draft](api/README.md#replays) has the full table.
+
+Item size is unbounded in the client: sizes are `u64`, and the `ssh` and
+`local` backends set no limit. `limits.max_item_bytes` is therefore a limit
+only this backend has. It can be switched off, the client can read it
+before it uploads, and exceeding it has its own error.
+
 The client hashes before it uploads because the id, which contains the
 content key, is associated data of the sealed metadata. Text and clipboard
 images are small; for a large file this costs one extra local read, not a
@@ -164,6 +180,23 @@ header) and keys, never items; each workspace's id index is rebuilt from a
 directory listing at start-up and kept in memory. Because `content` and
 `meta.json` match the client's files, importing a store from the `ssh` or
 `local` backend, or exporting one, is a copy.
+
+## Failing closed
+
+The control database is the single gate: every request is authenticated
+against it. When it is locked beyond the busy timeout, unreadable, or
+corrupt, the server answers 503 to every request that needs a key. It never
+falls back to keys it remembers, because a remembered key may be one that
+was revoked a minute ago. `/readyz` fails, so a proxy or orchestrator stops
+routing; `/healthz` stays up, so nothing restart-loops a server whose disk
+is the problem. The event is logged at Error once, not per request.
+
+The operations CLI shares that database, so it refuses to run as any user
+but the data directory's owner: a root-owned database or journal file is a
+reliable way to lock the daemon out. With the project's image,
+`docker compose exec` already runs as the container's user, uid 10001; the
+rule matters for `sudo` on a native install, and for a container started
+with `user: root` or exec'd with `--user 0`.
 
 ## Encryption
 
@@ -219,7 +252,7 @@ the client's migration.
 
 | `Store` method | API |
 |---|---|
-| `put` | `beginUpload`, `PUT /v1/uploads/{id}`, `commitUpload` |
+| `put` | `beginUpload`, `PUT /v1/uploads/{id}`, `commitUpload`; each repeatable |
 | `list`, `list_after` | `items(after:)`: envelopes with `meta`, one round trip |
 | `list_ids` | `itemIds(after:)`, from the in-memory index |
 | `get` | `item(id:)`, then `GET /v1/items/{id}/content` |
@@ -270,6 +303,8 @@ See [the API draft](api/README.md) for the schema.
   plaintext store on any backend.
 - **Logs.** Key ids, workspace ids, item ids, sizes, and outcomes. Never a
   key secret, content, `meta`, or a header.
+- **Failure.** Closed: no database, no access. See
+  [Failing closed](#failing-closed).
 - **Administration.** Local only: whoever can run the CLI as the data
   directory's owner. Nothing is managed over the network in v0.1.
 
