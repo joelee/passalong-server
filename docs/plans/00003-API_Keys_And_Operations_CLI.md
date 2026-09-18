@@ -8,10 +8,10 @@ tags:
   - claude-code
 type: delivery-plan
 plan_id: "PLAN-00003"
-plan_status: draft
+plan_status: approved
 plan_kind: initial
 created_at: "2026-09-18T19:42:21Z"
-approved_at: null
+approved_at: "2026-09-18T20:51:44Z"
 planner_agent: Claude Code
 planner_model: "anthropic/claude-fable-5-1"
 triggered_by: user
@@ -26,8 +26,8 @@ previous_plan: null
 requirements_count: 10
 steps_count: 9
 acceptance_criteria_count: 12
-blocking_decisions: 2
-build_ready: false
+blocking_decisions: 0
+build_ready: true
 web_research_used: false
 confidence: medium
 
@@ -45,13 +45,13 @@ current_step: null
 
 # Delivery Plan 00003: API Keys And Operations CLI
 
-> [!abstract] Plan status: `draft`
+> [!abstract] Plan status: `approved`
 > The second slice of server v0.1.0: API keys as the user's requirement 2
 > describes them, workspaces an operator can create and inspect, the
 > configuration file, logging, and the `passalong-server` commands that
-> manage all of it on the host. Still no HTTP. Two decisions await the
-> user: D-02, the default expiry of a new key, and D-03, whether a key's
-> secret may ever be shown again. Approving the plan accepts both proposals.
+> manage all of it on the host. Still no HTTP. D-02 (a new key expires after
+> 90 days unless `--never` is asked for) and D-03 (a lost key cannot be
+> shown again) were accepted at approval.
 
 ## 1. Objective and outcome
 
@@ -154,8 +154,8 @@ material.
 | ID | Decision or blocker | Resolution | Owner | Status |
 |---|---|---|---|---|
 | PLAN-00003-D-01 | The key's exact form | `pal_<key id>_<secret>`: the key id 12 lower-case hex digits (48 bits, public, the handle in every command and log line), the secret 64 lower-case hex digits (256 bits). Hex throughout, like every other id here, so one strict parser and no ambiguity of case or padding. The database stores SHA-256 of the secret; a slow hash adds nothing to a full-entropy secret (r04 §12). Comparison in constant time | Planner | Resolved |
-| PLAN-00003-D-02 | The default expiry of a new key (r04 §15, open since r01) | Proposed: `key create` without `--expires` gives 90 days and says so; `--never` must be asked for by name. A key that never expires should be a choice, not an omission. `key extend` moves the date without a new secret | @joelee | **Open.** Approving this plan accepts the proposal |
-| PLAN-00003-D-03 | Whether a lost key can be recovered | Proposed: no. The secret is shown once and only its hash is kept, so there is nothing to show again; the answer to a lost key is `key create` and `key revoke`. Stated because it is the rule users meet first | @joelee | **Open.** Approving this plan accepts the proposal |
+| PLAN-00003-D-02 | The default expiry of a new key (r04 §15, open since r01) | Proposed: `key create` without `--expires` gives 90 days and says so; `--never` must be asked for by name. A key that never expires should be a choice, not an omission. `key extend` moves the date without a new secret | @joelee | Resolved 2026-09-18T20:51:44Z: accepted as proposed |
+| PLAN-00003-D-03 | Whether a lost key can be recovered | Proposed: no. The secret is shown once and only its hash is kept, so there is nothing to show again; the answer to a lost key is `key create` and `key revoke`. Stated because it is the rule users meet first | @joelee | Resolved 2026-09-18T20:51:44Z: accepted as proposed |
 | PLAN-00003-D-04 | Where keys and workspaces live | In `control.sqlite`, beside the ledger's tables, as schema version 2: `workspaces` gains `name`, `quota_bytes`, `created_at`; new tables `api_keys` and `audit`. Migration from version 1 runs at opening, in one transaction; a version-1 workspace gets its id as its name and the configured default quota | Planner | Resolved |
 | PLAN-00003-D-05 | `last used` without a write per request | Updated at most once a minute per key. It is for an operator asking "is this key still in use", which a minute answers | Planner | Resolved |
 | PLAN-00003-D-06 | Deleting a workspace | `workspace delete <name>` asks for the name to be typed again, or takes `--yes`; refuses while a rewrite session is open unless `--force`; removes the keys and rows in one transaction, then the directory. A directory left by a kill in between is found by `check` | Planner | Resolved |
@@ -659,6 +659,7 @@ None.
 | Timestamp (UTC) | Plan status | Change | Reason | Requested/approved by |
 |---|---|---|---|---|
 | 2026-09-18T19:42:21Z | draft | Plan created | "start PLAN-00003" | @joelee |
+| 2026-09-18T20:51:44Z | approved | Approved ("I approved and you may commit the plan"); D-02 and D-03 accepted as proposed, which the draft said approval would do. The draft was committed by the planner under the rule the user had `docs/plans/AGENTS.md` amended with in the same message | User approval | @joelee |
 
 ## 19. External references
 
