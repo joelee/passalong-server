@@ -1,6 +1,7 @@
 # passalong-server with Docker Compose. DRAFT: works once `serve` exists.
 #
 #   cp .env.sample .env        # then edit
+#   docker compose build       # no image is published: build it here
 #   docker compose up -d
 #   docker compose exec server passalong-server workspace create home
 #   docker compose exec server passalong-server key create --workspace home --label laptop --expires 90d
@@ -9,7 +10,10 @@
 # directory the server uses; nothing is managed over the network.
 services:
   server:
-    image: joelee/passalong-server:${PASSALONG_SERVER_TAG:-latest}
+    # Built from this repository; nothing is pulled from a registry.
+    build:
+      context: ../..
+    image: passalong-server:local
     restart: unless-stopped
     ports:
       - "${PASSALONG_SERVER_PORT:-8443}:8443"

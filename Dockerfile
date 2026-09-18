@@ -12,8 +12,8 @@ RUN useradd --system --uid 10001 --home-dir /var/lib/passalong-server --create-h
     && mkdir -p /etc/passalong-server \
     && chown passalong-server: /var/lib/passalong-server
 COPY --from=builder /src/target/release/passalong-server /usr/local/bin/passalong-server
-# The proprietary licence; THIRD-PARTY-NOTICES joins it once the server has
-# third-party dependencies (see docs/backlog.md).
+# The proprietary licence. The image is built and run by its operator, never
+# published; THIRD-PARTY-NOTICES joins it before that changes (docs/backlog.md).
 COPY LICENSE /usr/share/doc/passalong-server/LICENSE
 USER passalong-server
 WORKDIR /var/lib/passalong-server

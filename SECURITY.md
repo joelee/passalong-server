@@ -2,8 +2,8 @@
 
 ## Supported versions
 
-Security fixes go into the newest release on Docker Hub and GitHub. Older
-versions are not patched; pull the newest image.
+Security fixes go into the newest tagged version. Older versions are not
+patched; build the newest tag.
 
 ## Reporting a vulnerability
 
@@ -29,7 +29,9 @@ Examples of what counts as a vulnerability in passalong-server:
   messages, or the control database unhashed;
 - item content, names, or previews reaching logs;
 - unauthenticated requests exhausting memory or disk, for example through
-  query depth, body size, or abandoned uploads;
+  body size or abandoned uploads, or a body being read before the key is
+  checked;
+- a response carrying a field taken from an item's `meta`;
 - a write to an encrypted workspace accepted under a key id that is not the
   workspace's current one.
 

@@ -12,6 +12,7 @@ just check     # format, lint, links, tests, coverage, build
 ```
 
 `just ci` adds the dependency audit, the workflow lint, and the image build.
+Nothing is ever pushed: the image stays local.
 
 ## Rules
 

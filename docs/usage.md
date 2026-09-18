@@ -1,7 +1,7 @@
 # Usage
 
 > **Draft.** The commands below are the proposal of
-> [IDEA-00001](ideas/00001-HTTPS_Server_Backend-r02.md); none exists yet.
+> [IDEA-00001](ideas/00001-HTTPS_Server_Backend-r03.md); none exists yet.
 
 ## Commands
 
@@ -23,7 +23,9 @@
 | `passalong-server service install` / `remove` | The systemd system unit; needs root |
 | `passalong-server check [--health]` | Validates the config, data directory, and TLS files; `--health` asks the running server |
 
-With Docker, run them inside the container:
+With Docker, build the image first, since none is published
+(`docker compose build` in `deploy/docker/`), then run the commands inside
+the container:
 
 ```text
 docker compose exec server passalong-server key create --workspace home --label laptop --expires 90d

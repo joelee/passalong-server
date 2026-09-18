@@ -1,7 +1,7 @@
 # Configuration
 
 > **Draft.** No code reads this configuration yet; the keys are the proposal
-> of [IDEA-00001](ideas/00001-HTTPS_Server_Backend-r02.md).
+> of [IDEA-00001](ideas/00001-HTTPS_Server_Backend-r03.md).
 > [`config.sample.toml`](../config.sample.toml) shows them with defaults.
 
 ## Where the file is found

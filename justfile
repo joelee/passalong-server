@@ -70,4 +70,4 @@ run *ARGS:
 #   test-integration  the built image, driven over HTTPS
 #   test-client       a released passalong client against this server
 #   test-deploy       deploy/docker end to end, as the client's does
-#   schema            export docs/api/schema.graphql and fail on drift
+#   openapi           export docs/api/openapi.json and fail on drift

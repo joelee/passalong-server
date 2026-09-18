@@ -6,7 +6,7 @@ store on an SSH server or in a local folder.
 
 > **Status: design.** The server is being prepared; there is nothing to run
 > yet. Start with the idea report,
-> [IDEA-00001](docs/ideas/00001-HTTPS_Server_Backend-r02.md), and the
+> [IDEA-00001](docs/ideas/00001-HTTPS_Server_Backend-r03.md), and the
 > [architecture draft](docs/architecture.md).
 
 ## What it will be
@@ -16,9 +16,10 @@ store on an SSH server or in a local folder.
 - **Many workspaces** on one server, each a separate passalong store.
 - **Zero knowledge** of encrypted workspaces: the server stores sealed items
   and never sees a key, the words, or plaintext.
-- **GraphQL** for control and metadata, plain HTTP streams for content.
+- A plain **REST + JSON** API, with HTTP streams for content.
 - One small Rust binary, as a **Docker** image or a **systemd** service,
-  with its own **operations CLI**.
+  with its own **operations CLI**. Built from this repository: nothing is
+  published while the licence is proprietary.
 
 ## Compatibility
 

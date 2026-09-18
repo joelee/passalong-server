@@ -2,12 +2,12 @@
 
 > **Draft for discussion.** Nothing here is implemented. This document
 > records the design proposed by
-> [IDEA-00001](ideas/00001-HTTPS_Server_Backend-r02.md) and becomes the
+> [IDEA-00001](ideas/00001-HTTPS_Server_Backend-r03.md) and becomes the
 > description of the real system as plans deliver it.
 
 passalong-server is a third place a passalong store can live, beside the
-client's `ssh` and `local` backends. Devices reach it over HTTPS with an API
-key; one server hosts many workspaces, each the store of one group of
+client's `ssh` and `local` backends. Devices reach it over HTTPS, a REST +
+JSON API, with an API key; one server hosts many workspaces, each the store of one group of
 devices.
 
 ## Crates
@@ -15,7 +15,7 @@ devices.
 | Crate | Kind | Responsibility |
 |---|---|---|
 | `passalong-server-core` | library | Configuration, workspaces, API keys, the item store, rewrite sessions, the control database, telemetry. No HTTP or terminal dependencies. |
-| `passalong-server-api` | library | GraphQL schema, content endpoints, the authentication layer, limits, TLS, health. No domain rules. |
+| `passalong-server-api` | library | REST routes and their OpenAPI document, content streams, the authentication layer, limits, TLS, health. No domain rules. |
 | `passalong-server` (in `crates/passalong-server-cli/`) | binary `passalong-server` | `serve`, and the operations commands: `init`, `workspace`, `key`, `tls`, `service`, `check`. |
 
 The daemon and the operations CLI are one binary and meet only in
@@ -38,10 +38,10 @@ flowchart TB
     subgraph bin["passalong-server (one binary)"]
       subgraph api["passalong-server-api"]
         TLS["listener<br/>rustls, or plain behind proxy"]
-        LIM["limits<br/>body, depth, complexity, rate"]
+        LIM["limits<br/>body size, rate"]
         AUTH["auth layer<br/>Bearer key to workspace + role"]
-        GQL["GraphQL /v1/graphql<br/>control and metadata"]
-        BYTES["content endpoints<br/>PUT uploads, GET content (Range)"]
+        ROUTES["JSON routes /v1<br/>control and metadata"]
+        BYTES["content streams /v1<br/>PUT upload, GET content (Range)"]
         HEALTH["/healthz, /readyz"]
       end
       subgraph core["passalong-server-core"]
@@ -61,8 +61,8 @@ flowchart TB
   PROXY --> TLS
   C1 -. "direct, tls_pin" .-> TLS
   TLS --> LIM --> AUTH
-  AUTH --> GQL & BYTES
-  GQL --> WS & ITEMS & RW
+  AUTH --> ROUTES & BYTES
+  ROUTES --> WS & ITEMS & RW
   BYTES --> ITEMS
   AUTH --> KEYS
   KEYS & WS --> DB
@@ -74,9 +74,10 @@ flowchart TB
 ## Request flow
 
 1. The listener accepts TLS (rustls), or plain HTTP in `mode = "plain"`.
-2. Limits apply before anything is parsed: body size, then, for GraphQL,
-   query depth and complexity. Failed authentications are rate-limited per
-   client address.
+2. Limits apply before anything is parsed. JSON bodies are capped at a
+   small fixed size; only content streams are large, and those go to disk
+   as they arrive. Failed authentications are rate-limited per client
+   address.
 3. The auth layer reads `Authorization: Bearer pal_<key id>_<secret>`, looks
    the key id up in the control database, compares the secret's SHA-256 in
    constant time, and rejects expired or revoked keys with a distinct,
@@ -87,7 +88,7 @@ flowchart TB
    server [fails closed](#failing-closed).
 4. A correlation id is opened for the request (the `X-Request-Id` the client
    sent, or a new one) and carried by every log line.
-5. The resolver or content handler calls `passalong-server-core`.
+5. The route handler calls `passalong-server-core`.
 
 ## The envelope
 
@@ -105,7 +106,10 @@ The server never interprets `meta`, with one exception: in a plaintext
 workspace it checks that the content's SHA-256 and size match `meta` and
 that the id's content key matches the SHA-256. In an encrypted workspace it
 cannot, and the client verifies on download, as it does today. Names,
-previews, MIME types, and device names are never server-side fields.
+previews, MIME types, and device names are never server-side fields, in
+either kind of workspace. This is a standing rule (IDEA-00001-R03-INFO-02),
+decided on 2026-09-18, and the reason the API is plain REST: with `meta`
+opaque, a query language has nothing to select.
 
 ## Storing an item
 
@@ -113,23 +117,23 @@ previews, MIME types, and device names are never server-side fields.
 sequenceDiagram
   autonumber
   participant C as client (HttpStore::put)
-  participant G as GraphQL
-  participant B as content endpoint
+  participant G as JSON routes
+  participant B as content stream
   participant I as item store
   participant F as filesystem
 
   C->>C: hash (and seal) content to a local temp file, fix id and meta
-  C->>G: beginUpload(id, meta, size, expectedKeyId)
+  C->>G: POST /v1/uploads (id, meta, size, expectedKeyId)
   G->>I: role is read-write? key id current? no rewrite? quota?
   alt content key already stored
     I-->>C: existing item, created: false
   else
     I->>F: mkdir staging/<uploadId>
     I-->>C: uploadId
-    C->>B: PUT /v1/uploads/<uploadId> (stream)
+    C->>B: PUT /v1/uploads/<uploadId>/content (stream)
     B->>F: write staging/<uploadId>/content, count bytes, hash
     B-->>C: 204
-    C->>G: commitUpload(uploadId)
+    C->>G: POST /v1/uploads/<uploadId>/commit
     G->>I: take workspace lock
     I->>I: re-check key id, rewrite, dedup, then verify size (and SHA-256 if plaintext)
     I->>F: write meta.json, rename staging/<uploadId> to gen-N/items/<id>
@@ -240,9 +244,16 @@ stateDiagram-v2
 | `encrypt` migration | `beginRewrite(MIGRATE)`, then for each item: download, seal, upload into the session; `commitRewrite` |
 | `encrypt` change of words | `replaceHeader` with the same key id |
 | `encrypt --rotate` | `beginRewrite(ROTATE)`, re-seal each item, `commitRewrite` |
-| `encrypt --join` | read `workspace { encryption { header } }` |
-| `encrypt --recover` | read the session; resume it, or `abortRewrite` |
+| `encrypt --join` | `getWorkspace`: read `encryption.header` |
+| `encrypt --recover` | `getRewrite`; `takeOverRewrite` if its lease expired; then resume it, or `abortRewrite` |
 | `prune --plain` | list and delete in the `PLAIN` partition |
+
+Operation names are the `operationId`s of [the API draft](api/README.md).
+The full session ships in server v0.1, by the user's decision of 2026-09-18;
+doing migration and rotation on a `local` or `ssh` store and importing the
+result is the fallback if the spike fails (IDEA-00001 §11, option E). Every
+session request can be repeated: above all, a `commitRewrite` whose answer
+was lost tells the client that the commit happened.
 
 The session is the journal. Staged items are skipped on resume because ids
 in the new generation are computed from each item's recorded SHA-256, as in
@@ -252,24 +263,28 @@ the client's migration.
 
 | `Store` method | API |
 |---|---|
-| `put` | `beginUpload`, `PUT /v1/uploads/{id}`, `commitUpload`; each repeatable |
-| `list`, `list_after` | `items(after:)`: envelopes with `meta`, one round trip |
-| `list_ids` | `itemIds(after:)`, from the in-memory index |
-| `get` | `item(id:)`, then `GET /v1/items/{id}/content` |
-| `get_meta` | `item(id:)` |
-| `exists` | `item(id:) { id }` |
-| `find_by_content_key` | `itemByContentKey(key:)` |
-| `resolve` | `resolveItem(input:)`: the client's prefix rules, on ids alone, so it works for sealed workspaces |
-| `delete` | `deleteItem(id:, expectedKeyId:)` |
-| `clean_staging` | `cleanStaging(olderThan:)`; the janitor does the same unasked |
+| `put` | `beginUpload`, `putUploadContent`, `commitUpload`; each repeatable |
+| `list`, `list_after` | `listItems`: envelopes with `meta`, one round trip |
+| `list_ids` | `listItemIds`, from the in-memory index |
+| `get` | `getItem`, then `getItemContent` |
+| `get_meta` | `getItem` |
+| `exists` | `getItem`; 404 means no |
+| `find_by_content_key` | `findByContentKey` |
+| `resolve` | `resolveItem`: the client's prefix rules, on ids alone, so it works for sealed workspaces |
+| `delete` | `deleteItem` |
+| `clean_staging` | `cleanStaging`; the janitor does the same unasked |
 | `probe_write` | `probeWrite`: checks the role, the rewrite state, and that staging is writable |
 | `key_id`, `content_key` | Local to the client; the key id comes from the header at open |
 
-See [the API draft](api/README.md) for the schema.
+See [the API draft](api/README.md) for the routes.
 
 ## Deployment
 
-- **Docker.** `joelee/passalong-server`, amd64 and arm64, Debian slim, uid
+- **Nothing is published** while the licence is proprietary: no Docker Hub
+  image, no binaries. Operators build from this repository, and a release
+  tag only verifies that the build works.
+- **Docker.** Built by `docker compose build` from `deploy/docker/`; amd64
+  and arm64 both build in CI. Debian slim, uid
   10001, read-only root filesystem, one volume at
   `/var/lib/passalong-server`. `HEALTHCHECK` runs
   `passalong-server check --health`, so the image needs no curl. Operations
@@ -317,7 +332,7 @@ dependency yet.
 |---|---|
 | Async runtime | `tokio`, as the client |
 | HTTP | `axum` on `hyper` |
-| GraphQL | `async-graphql` |
+| OpenAPI document | `utoipa`, or a hand-written `openapi.json` checked against the routes by a test |
 | TLS | `rustls` with `ring`, as the client chose for `russh` |
 | Control database | `rusqlite`, bundled SQLite, WAL |
 | CLI, config, logs, errors | `clap`, `toml`, `serde`, `tracing`, `thiserror`, `anyhow`, as the client |

@@ -15,6 +15,8 @@ crate from here. The contract between them is the versioned API
 - Format with `rustfmt`; lint with `clippy`; use `cargo` commands only unless docs specify stricter tools.
 - Must run in containers: keep Docker/Colima-compatible build and runtime; avoid host-only paths.
 - Crates here are never published to crates.io: every manifest keeps `publish = false`.
+- Nothing else is published either while the licence is proprietary: no Docker Hub image, no release binaries.
+- The API is REST + JSON. The server never exposes a field taken from an item's `meta`; see "The envelope" in `docs/architecture.md`.
 
 ## Non-negotiables
 - TDD: write or update a failing unit test before production code; then implement; then refactor.
@@ -65,7 +67,7 @@ Update when behavior, commands, config, architecture, or user workflow changes:
 - `docs/usage.md`
 - `docs/developer-guide.md`
 - `docs/backlog.md`
-- `docs/api/` (the schema and the HTTP content endpoints)
+- `docs/api/` (the routes, their replay semantics, and the error codes)
 
 ## Backlog rules
 - Track future work in `docs/backlog.md`.
@@ -95,5 +97,5 @@ Update when behavior, commands, config, architecture, or user workflow changes:
    - Run `scripts/check-release-tag.sh vX.Y.Z`, and suggest the PR title and description.
 5. User verifies, pushes the branch, and opens a PR to `main`.
 6. Agent debugs PR CI failures on the branch. User gets the PR approved and merged.
-7. User pulls `main`, tags the merge commit, and pushes the tag. The Release workflow checks the tag and release records, builds the multi-arch image, and, after the user approves the pending `release` deployment, pushes it to Docker Hub and creates the GitHub release from `docs/release/vX.Y.Z.md`. Do not push an image or create the release by hand. A pushed version tag is never moved.
-8. User checks the release page and Docker Hub. Agent helps debug a failed release run.
+7. User pulls `main`, tags the merge commit, and pushes the tag. The Release workflow checks the tag and release records and verifies the build: the workspace, and the image for amd64 and arm64. It publishes nothing: no image is pushed and no release is created. A pushed version tag is never moved.
+8. Agent helps debug a failed release run. Publishing returns to this workflow only once a licence is chosen (IDEA-00001-R02-MED-03).

@@ -7,7 +7,7 @@ license-file.workspace = true
 publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "passalong server API: GraphQL schema, content endpoints, authentication, and TLS"
+description = "passalong server API: REST routes, content streams, authentication, and TLS"
 
 [dependencies]
 passalong-server-core.workspace = true
