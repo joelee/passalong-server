@@ -4,9 +4,11 @@ A self-hosted HTTPS server for [passalong](https://github.com/joelee/passalong),
 the clipboard and file sharing tool: an alternative to keeping a passalong
 store on an SSH server or in a local folder.
 
-> **Status: design.** The server is being prepared; there is nothing to run
-> yet. Start with the idea report,
-> [IDEA-00001](docs/ideas/00001-HTTPS_Server_Backend-r03.md), and the
+> **Status: design accepted, server being prepared.** There is nothing to
+> run yet. The protocol is specified ([API](docs/api/README.md)) and its
+> rules exist as a tested model in `passalong-server-core`. Start with the
+> idea report,
+> [IDEA-00001](docs/ideas/00001-HTTPS_Server_Backend-r04.md), and the
 > [architecture draft](docs/architecture.md).
 
 ## What it will be

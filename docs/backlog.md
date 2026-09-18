@@ -5,16 +5,15 @@ Future work not covered by an active plan. Completed items are removed.
 ## @joelee road map for next releases
 
 ### v0.1.0
-- **Decide IDEA-00001**: answer its blocking questions, run the protocol
-  spike of its §14, then accept, revise, or park it.
-- **PLAN-00001**, once the idea is accepted: the server with parity for
-  passalong client v0.2.1, its Docker image, and its systemd unit.
-- **IDEA-00001 r04**: record the protocol spike's verdict (PLAN-00001) and
-  the user's decision to accept, revise, or park the idea.
-- **Read-back of staged items** (`partition=staged` for the session's
-  holder), so the client can verify a re-encrypted item before it commits,
-  as it does today; see `docs/api/client-encryption-mapping.md`, "One gap".
-  A decision for the user; not in `openapi.json` yet.
+- **PLAN-00002**, server v0.1.0, from IDEA-00001 r04, accepted on
+  2026-09-18 after the protocol spike (PLAN-00001, completed). First slice:
+  the filesystem shelf and the control database under the model's rules,
+  with a harness that kills the process between a rename and its
+  transaction (IDEA-00001-R04-MED-01). Then API keys and the CLI, the HTTP
+  surface and TLS, Docker and systemd.
+- **The client's v0.3.0 backend plan**, in the client repository, from
+  `docs/api/openapi.json` and `docs/api/client-encryption-mapping.md`, once
+  that first slice confirms the contract needs no change.
 
 ### Unscheduled
 - An open-source licence. Until then nothing is published.

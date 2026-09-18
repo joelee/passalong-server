@@ -13,6 +13,9 @@ passalong client's.
   by the model test: a late duplicate of `beginRewrite` reopening an aborted
   rewrite (`REWRITE_ENDED`). `limits.max_item_bytes` defaults to
   `"unlimited"`; a fresh start is one atomic call.
+- IDEA-00001 accepted (r04), after the protocol spike.
+- `partition=staged` on the read routes, for a rewrite session's holder
+  alone, so the client can verify every re-encrypted item before it commits.
 - Project scaffold: workspace, process documents, and the first idea report
   (IDEA-00001). No server functionality yet.
 - IDEA-00001 r02, after the review of r01, and the draft documents brought

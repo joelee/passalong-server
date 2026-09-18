@@ -4,7 +4,7 @@
 > uploads, and rewrite sessions are implemented and tested as an in-memory
 > model in `passalong-server-core` (PLAN-00001); everything around them is
 > still the design proposed by
-> [IDEA-00001](ideas/00001-HTTPS_Server_Backend-r03.md) and becomes the
+> [IDEA-00001](ideas/00001-HTTPS_Server_Backend-r04.md) and becomes the
 > description of the real system as plans deliver it.
 
 passalong-server is a third place a passalong store can live, beside the
@@ -251,7 +251,7 @@ stateDiagram-v2
 |---|---|
 | `encrypt` on an empty plaintext workspace | `enableEncryption` |
 | `encrypt` fresh start | `freshStart`: one atomic call; the current generation becomes the `plain` partition by moving a pointer |
-| `encrypt` migration | `beginRewrite(migrate)`, then for each item: download, seal, upload with `inRewrite`; `commitRewrite` |
+| `encrypt` migration | `beginRewrite(migrate)`, then for each item: download, seal, upload with `inRewrite`; read each back with `partition=staged` and verify; `commitRewrite` |
 | `encrypt` change of words | `replaceHeader` with the same key id |
 | `encrypt --rotate` | `beginRewrite(rotate)`, re-seal each item, `commitRewrite` |
 | `encrypt --join` | `getWorkspace`: read `encryption.header` |
