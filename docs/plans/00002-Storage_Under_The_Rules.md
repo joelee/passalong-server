@@ -8,10 +8,10 @@ tags:
   - claude-code
 type: delivery-plan
 plan_id: "PLAN-00002"
-plan_status: draft
+plan_status: approved
 plan_kind: initial
 created_at: "2026-09-18T18:30:07Z"
-approved_at: null
+approved_at: "2026-09-18T18:42:56Z"
 planner_agent: Claude Code
 planner_model: "anthropic/claude-fable-5-1"
 triggered_by: user
@@ -26,8 +26,8 @@ previous_plan: null
 requirements_count: 9
 steps_count: 8
 acceptance_criteria_count: 10
-blocking_decisions: 2
-build_ready: false
+blocking_decisions: 0
+build_ready: true
 web_research_used: false
 confidence: medium
 
@@ -45,13 +45,12 @@ current_step: null
 
 # Delivery Plan 00002: Storage Under The Rules
 
-> [!abstract] Plan status: `draft`
+> [!abstract] Plan status: `approved`
 > The first slice of server v0.1.0, and the experiment of IDEA-00001 r04
 > §14: a filesystem shelf and a SQLite control database under the rules the
 > protocol spike proved, with the process killed at every boundary between
-> the two. No HTTP, no API keys, no CLI. Two decisions, D-01 (this plan is
-> one slice, not all of v0.1.0) and D-02 (synchronous I/O in the core),
-> await the user; approving the plan accepts both.
+> the two. No HTTP, no API keys, no CLI. D-01 (this plan is one slice, not all
+> of v0.1.0) and D-02 (synchronous I/O in the core) were accepted at approval.
 
 ## 1. Objective and outcome
 
@@ -151,8 +150,8 @@ material.
 
 | ID | Decision or blocker | Resolution | Owner | Status |
 |---|---|---|---|---|
-| PLAN-00002-D-01 | r04 §18 names PLAN-00002 "server v0.1.0". All of v0.1.0 in one plan would run to some forty steps, and its first slice is an experiment whose failure would change the rest | Proposed: PLAN-00002 is the storage slice only. Later slices get their own plans, written when this one's verdict is known: API keys and the CLI; the HTTP surface and TLS; Docker and systemd | @joelee | **Open.** Approving this plan accepts the proposal |
-| PLAN-00002-D-02 | Asynchronous or synchronous I/O in the core | Proposed: synchronous (`std::fs`, `rusqlite`), streams as `std::io::Read`. SQLite is synchronous in any case, the rules are short critical sections under a workspace lock, and the HTTP slice calls them from a blocking pool. The core stays free of a runtime, and the kill harness and the CLI need none | @joelee | **Open.** Approving this plan accepts the proposal |
+| PLAN-00002-D-01 | r04 §18 names PLAN-00002 "server v0.1.0". All of v0.1.0 in one plan would run to some forty steps, and its first slice is an experiment whose failure would change the rest | Proposed: PLAN-00002 is the storage slice only. Later slices get their own plans, written when this one's verdict is known: API keys and the CLI; the HTTP surface and TLS; Docker and systemd | @joelee | Resolved 2026-09-18T18:42:56Z: accepted as proposed |
+| PLAN-00002-D-02 | Asynchronous or synchronous I/O in the core | Proposed: synchronous (`std::fs`, `rusqlite`), streams as `std::io::Read`. SQLite is synchronous in any case, the rules are short critical sections under a workspace lock, and the HTTP slice calls them from a blocking pool. The core stays free of a runtime, and the kill harness and the CLI need none | @joelee | Resolved 2026-09-18T18:42:56Z: accepted as proposed |
 | PLAN-00002-D-03 | Durability | A published item's `content` is flushed (`sync_all`) before the rename and its parent directory after; SQLite runs with `synchronous = FULL` in WAL mode. This is the ordinary care; it is not tested, because a test cannot cut power, and no claim is made beyond it | Planner | Resolved |
 | PLAN-00002-D-04 | The ledger's form: tables, or one document per workspace | Tables: `workspaces`, `generations`, `uploads`, `tombstones`, `ended_rewrites`, and `schema_version`. The CLI of the next slice queries them (`workspace show`, later `key list`), and a document would have to be rewritten whole on every upload | Planner | Resolved |
 | PLAN-00002-D-05 | Where the envelope's server-side fields live (`under`, `receivedAt`) | In `server.json` beside `content` and `meta.json`, written before the publish. The filesystem stays the only record of items, and an export is still a copy that may leave one file out | Planner | Resolved |
@@ -643,6 +642,7 @@ None.
 | Timestamp (UTC) | Plan status | Change | Reason | Requested/approved by |
 |---|---|---|---|---|
 | 2026-09-18T18:30:07Z | draft | Plan created | "start PLAN-00002" | @joelee |
+| 2026-09-18T18:42:56Z | approved | Approved; D-01 and D-02 accepted as proposed ("D-01 and D-02 as recommended. Plan approved."). The draft was committed by the agent on the user's instruction, a one-off exception to the rule that drafts are committed by the user | User approval | @joelee |
 
 ## 19. External references
 
