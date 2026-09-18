@@ -33,13 +33,13 @@ confidence: medium
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; the planner initializes them.
-implementation_status: not-started
-builder_agent: null
-builder_model: null
-execution_branch: null
-execution_started_at: null
-execution_updated_at: null
-execution_completed_at: null
+implementation_status: completed
+builder_agent: Claude Code
+builder_model: "anthropic/claude-fable-5-1"
+execution_branch: "feature/protocol-spike"
+execution_started_at: "2026-09-18T16:57:30Z"
+execution_updated_at: "2026-09-18T17:27:55Z"
+execution_completed_at: "2026-09-18T17:27:55Z"
 current_step: null
 ---
 
@@ -601,14 +601,14 @@ and the remaining steps would document a design that does not work.
 
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
-| PLAN-00001-STEP-01 | not-started | — | — | — | — |
-| PLAN-00001-STEP-02 | not-started | — | — | — | — |
-| PLAN-00001-STEP-03 | not-started | — | — | — | — |
-| PLAN-00001-STEP-04 | not-started | — | — | — | — |
-| PLAN-00001-STEP-05 | not-started | — | — | — | — |
-| PLAN-00001-STEP-06 | not-started | — | — | — | — |
-| PLAN-00001-STEP-07 | not-started | — | — | — | — |
-| PLAN-00001-STEP-08 | not-started | — | — | — | — |
+| PLAN-00001-STEP-01 | completed | 2026-09-18 | 2026-09-18 | `just check` and `just audit` exit 0 | Only `serde_json` was needed, as a dev-dependency of the core crate; `serde` is not named |
+| PLAN-00001-STEP-02 | completed | 2026-09-18 | 2026-09-18 | 22 unit tests; gate run with steps 3 and 4 | `just check` was run once steps 3 and 4 landed, because clippy rejects the fields those steps first use; see Deviations |
+| PLAN-00001-STEP-03 | completed | 2026-09-18 | 2026-09-18 | 13 unit tests | `inRewrite: bool` replaces `rewriteSessionId`: a workspace has one session, and `expectedKeyId` equal to the session's new key id identifies it |
+| PLAN-00001-STEP-04 | completed | 2026-09-18 | 2026-09-18 | 8 unit tests; `just check` exit 0, line coverage 99.50 % | New error code `REWRITE_INCOMPLETE` (409). `commitRewrite` and `abortRewrite` name the new key id, so a replay is recognised and a stale request cannot end another session |
+| PLAN-00001-STEP-05 | completed | 2026-09-18 | 2026-09-18 | `tests/model.rs`: 210 variants over 59 requests in 9 scenarios, on `MemoryShelf` and on `InterruptedShelf`; `docs/api/rewrite-session.md` | Blocked once, on the stale `beginRewrite`; resumed after the user chose option A. REQ-05 names eight scenarios; "abort of each rewrite" is two scripts, so there are nine |
+| PLAN-00001-STEP-06 | completed | 2026-09-18 | 2026-09-18 | `tests/openapi.rs`, 7 tests; the document also passes `@redocly/cli lint` with no warning | Written through a throwaway generator kept outside the repository; only the JSON is kept. The lint found an ambiguous path, so `findByContentKey` is `GET /v1/content-keys/{contentKey}` |
+| PLAN-00001-STEP-07 | completed | 2026-09-18 | 2026-09-18 | `docs/api/client-encryption-mapping.md`; `git -C ../passalong status --short` prints nothing, `HEAD` unchanged | Every `pub` function re-exported by `encryption/mod.rs` has a row. One gap found: no route reads a staged item back, which the client's `verify` needs |
+| PLAN-00001-STEP-08 | completed | 2026-09-18 | 2026-09-18 | `just check` exit 0, line coverage 99.22 %; `just audit` ok; the grep prints nothing | Default `"unlimited"`. Reasoning about it exposed unbounded rewrite uploads; bounded test first by an allowance equal to the quota |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 `skipped`. A skipped step requires explicit user approval recorded in Evidence.
@@ -617,26 +617,75 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 
 | Timestamp (UTC) | Step | Event | Evidence or reference | Next action |
 |---|---|---|---|---|
+| 2026-09-18T17:12:18Z | STEP-01 to STEP-04 | Modules `ids`, `error`, `clock`, `random`, `shelf`, `workspace`, `upload`, `rewrite` written test first: for each, the tests were written and seen to fail to compile before the implementation | 43 unit tests | STEP-05 |
+| 2026-09-18T17:12:18Z | STEP-05 | Invariant checker written first and shown to fail against two broken shelves (`LossyShelf`: I3; `HoardingShelf`: orphan generation). Nine scenarios, four variants per request | `tests/model.rs` | Blocked |
+| 2026-09-18T17:12:18Z | STEP-05 | Four failures met. Three were errors of the test (I1 stated too strongly for a migration; a script step asserting inside itself; a composite step answering with a count). One is a finding about the protocol | See Deviations and blockers | User decision |
+| 2026-09-18T17:12:18Z | STEP-05 | The candidate fix was tried on a copy outside the repository, not applied: with it, 210 variants over 59 requests pass on `MemoryShelf` and on `InterruptedShelf` | Scratch copy; nothing in the repository changed for it | User decision |
+| 2026-09-18T17:27:55Z | STEP-05 | The user chose option A. `REWRITE_ENDED` added test first; the model test passes | 210 variants, both shelves | STEP-06 |
+| 2026-09-18T17:27:55Z | STEP-06 to STEP-08 | OpenAPI document and its test; client mapping; item-size default; documents reconciled with D-02 and the findings | See Step status | Hand-off |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
-
-None.
+| 2026-09-18T17:12:18Z | STEP-02 | Deviation: `just check` was not run at the end of step 2 alone, because clippy's `-D warnings` rejects fields that steps 3 and 4 first read. The unit tests were run at each step; the gate was run after step 4 | None on the result: exit 0, coverage 99.50 % | None |
+| 2026-09-18T17:12:18Z | STEP-05 | **Blocker (stop condition).** Variant "migrate, aborted: late replay of request 0": a duplicate of `beginRewrite` that arrives after its rewrite was aborted is indistinguishable from a new request, so it opens a new session. Nobody holds it in earnest, and ordinary writers get `REWRITE_IN_PROGRESS` until someone runs `encrypt --recover`. After a *commit* the duplicate is harmless, because the old key id no longer matches. The client today has the same exposure to a stale `.rewrite/` lock, but not to a replay, since its lock is taken by a local rename | The fix is visible to a client: a new refusal for `beginRewrite`. Options: (A) the server remembers the new key id of every aborted rewrite and refuses a `beginRewrite` that names one, with a new code `REWRITE_ENDED` (409, not retryable); safe because the client generates a fresh data key for every attempt. Tried on a scratch copy: all 210 variants pass. (B) the same, but forgotten after `staging.max_age_hours`, like upload tombstones. (C) a client-chosen session nonce in `beginRewrite`, remembered likewise; more to specify, no gain over A while new key ids are unique. (D) accept the exposure and document it. Recommended: A | @joelee |
+| 2026-09-18T17:27:55Z | STEP-05 | Blocker resolved: the user chose option A ("A, as recommended") | `REWRITE_ENDED` (409, not retryable); the new key ids of aborted rewrites are kept for good | None |
+| 2026-09-18T17:27:55Z | STEP-07 | Finding, not a blocker: the client's `verify` reads every re-encrypted item back, and no route reaches a staged item. Recommended: `partition=staged`, for the session's holder only. Not added to `openapi.json`, since it is new scope | Until decided, a v0.3.0 client would verify before upload only | @joelee |
+| 2026-09-18T17:27:55Z | STEP-08 | Finding, fixed: uploads of a rewrite were exempt from the quota without any bound, so a session could fill the disk. They now count against an allowance equal to the quota | A workspace can hold twice its quota while a rewrite is open; documented in `docs/configuration.md` | None |
 
 ### Verification results
 
 | Timestamp (UTC) | Step | Command or check | Result | Evidence |
 |---|---|---|---|---|
+| 2026-09-18T17:12:18Z | STEP-01 | `cargo deny check` | advisories ok, bans ok, licenses ok, sources ok | Terminal |
+| 2026-09-18T17:12:18Z | STEP-04 | `just check` | Exit 0; 42 tests; line coverage 99.50 % | Terminal |
+| 2026-09-18T17:12:18Z | STEP-05 | `cargo test -p passalong-server-core --test model` | 2 passed (the broken-shelf demonstrations), 2 failed on the blocker's variant | Terminal |
+| 2026-09-18T17:27:55Z | STEP-05 | `cargo test -p passalong-server-core --test model -- --nocapture` | 4 passed; "210 variants over 59 requests in 9 scenarios", and 210 more with the interrupted shelf | Terminal |
+| 2026-09-18T17:27:55Z | STEP-06 | `cargo test -p passalong-server-core --test openapi`; `npx @redocly/cli lint docs/api/openapi.json` | 7 passed; valid, no warning | Terminal |
+| 2026-09-18T17:27:55Z | STEP-08 | `just check` | Exit 0; 45 unit, 4 model, 7 contract tests; line coverage 99.22 % | Terminal |
+| 2026-09-18T17:27:55Z | STEP-08 | `just audit` | advisories ok, bans ok, licenses ok, sources ok; `serde_json` is the only third-party crate named | Terminal |
+| 2026-09-18T17:27:55Z | STEP-08 | `git -C ../passalong status --short`; `rev-parse HEAD` | No output; `785a276061c4b47400b16ff89982470d5489a65e`, unchanged | Terminal |
 
 ### Completion summary
 
-- **Implementation status:** `not-started`
-- **Completed requirements:** None
-- **Incomplete requirements:** All
+- **Implementation status:** `completed`
+- **Completed requirements:** REQ-01 to REQ-08
+- **Incomplete requirements:** None
 - **Outstanding blockers:** None
-- **Review request:** Not ready
+- **Acceptance criteria:** AC-01 to AC-09 met. AC-03: nine scenarios, not
+  eight, because "abort of each rewrite" is two scripts.
+- **Verdict against IDEA-00001 r03 §14:**
+  - *Success: every `Store` method and `encrypt` mode mapped.* Met:
+    `docs/architecture.md`, "Mapping the client's `Store` trait", and
+    `docs/api/client-encryption-mapping.md`.
+  - *Success: every request's replay behaviour stated.* Met:
+    `x-passalong-replay` on every operation that is not a `GET`, enforced
+    by `tests/openapi.rs`; `docs/api/rewrite-session.md`, "Replays".
+  - *Success: the model test passes.* Met: 210 variants over 59 requests,
+    I1 to I5 after every request, also with a clean-up cut short. It first
+    failed, on a real flaw: a late duplicate of `beginRewrite` reopened an
+    aborted rewrite. Fixed with `REWRITE_ENDED`.
+  - *Success: the trait sketch touches no sealing code, only
+    orchestration.* Met. What must be shared is the file formats private to
+    the client's `fs_store.rs`, not anything in `crypto/`.
+  - *Failure: a rewrite kind needs filesystem semantics the session cannot
+    express.* Not met. Migration and rotation are expressed; a fresh start
+    turned out to need no session (D-02).
+  - *Failure: the client refactor reaches into `crypto/`.* Not met.
+  - *The default for `maxItemBytes`.* Decided: `"unlimited"`.
+- **Recommendation:** accept IDEA-00001. Two matters go to the user with
+  it: read-back of staged items (`partition=staged`), and that the model
+  proves the rules, not the filesystem shelf or the database transaction
+  that v0.1.0 must put under them; the `ItemShelf` trait is limited to
+  operations a POSIX filesystem performs in one step for that reason.
+- **Changed files:** `Cargo.toml`, `Cargo.lock`,
+  `crates/passalong-server-core/` (`Cargo.toml`, `src/{lib, ids, error,
+  clock, random, shelf, workspace, upload, rewrite}.rs`, `tests/{model,
+  openapi}.rs`), `docs/api/{README.md, openapi.json, rewrite-session.md,
+  client-encryption-mapping.md}`, `docs/{architecture, configuration,
+  backlog}.md`, `config.sample.toml`, `CHANGELOG.md`, and this work log.
+- **Review request:** Ready
 <!-- BUILDER_WORK_LOG_END -->
 
 ## 18. Planning change log
