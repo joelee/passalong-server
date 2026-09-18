@@ -33,13 +33,13 @@ confidence: medium
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; the planner initializes them.
-implementation_status: not-started
-builder_agent: null
-builder_model: null
-execution_branch: null
-execution_started_at: null
-execution_updated_at: null
-execution_completed_at: null
+implementation_status: completed
+builder_agent: Claude Code
+builder_model: "anthropic/claude-fable-5-1"
+execution_branch: "feature/storage-slice"
+execution_started_at: "2026-09-18T18:50:00Z"
+execution_updated_at: "2026-09-18T19:15:12Z"
+execution_completed_at: "2026-09-18T19:15:12Z"
 current_step: null
 ---
 
@@ -599,14 +599,14 @@ and the options.
 
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
-| PLAN-00002-STEP-01 | not-started | — | — | — | — |
-| PLAN-00002-STEP-02 | not-started | — | — | — | — |
-| PLAN-00002-STEP-03 | not-started | — | — | — | — |
-| PLAN-00002-STEP-04 | not-started | — | — | — | — |
-| PLAN-00002-STEP-05 | not-started | — | — | — | — |
-| PLAN-00002-STEP-06 | not-started | — | — | — | — |
-| PLAN-00002-STEP-07 | not-started | — | — | — | — |
-| PLAN-00002-STEP-08 | not-started | — | — | — | — |
+| PLAN-00002-STEP-01 | completed | 2026-09-18 | 2026-09-18 | `just check` and `just audit` exit 0 | `rusqlite` 0.40.2 `bundled`, `serde`, `serde_json`, `tracing`, `tempfile`. `tracing` without its `attributes` feature: `#[instrument]` would bring a second `syn` and need a `skip` entry, as the client's `deny.toml` has; leaving the feature out avoids both |
+| PLAN-00002-STEP-02 | completed | 2026-09-18 | 2026-09-18 | 50 unit tests, 210 model variants; `just check` exit 0 | `Ledger`, `WorkspaceRecord`, `MemoryLedger`; the rules moved verbatim onto `Rules`, `Engine` is transactional wrappers. Shelf and ledger take `&self`. AC-03: of 196 assertions in the baseline's unit tests, 194 are identical once `.unwrap()` is stripped; the other two are a set-up helper that moved and an assertion the formatter re-wrapped. New test: a refused operation leaves the record as it was, for 16 refusals |
+| PLAN-00002-STEP-03 | completed | 2026-09-18 | 2026-09-18 | 46 unit, 6 conformance tests, 210 model variants; `just check` exit 0 | Every shelf method is fallible; content streams through `pump` in 64 KiB pieces. The 4 unit tests of the old `shelf.rs` became the conformance suite, which covers each of their rules. One test input changed because the rule did: content longer than announced is now refused while it arrives, so `content_can_be_sent_again…` re-sends 2 bytes, not 4. See Deviations for the ordering rule this step brought forward |
+| PLAN-00002-STEP-04 | completed | 2026-09-18 | 2026-09-18 | 17 conformance and filesystem tests | `FsShelf`. Publish is a rename onto the item's place; removal is a rename into `trash/`. The racing-publishes test runs 20 rounds of two threads: exactly one wins each time. The stop condition did not arise |
+| PLAN-00002-STEP-05 | completed | 2026-09-18 | 2026-09-18 | Ledger suite over both ledgers; 5 SQLite tests | `SqliteLedger`. Deviation: the suite lives in `src/ledger/mod.rs`, not `tests/ledger_conformance.rs`, because a record's fields are crate-private. See Deviations for the WAL finding |
+| PLAN-00002-STEP-06 | completed | 2026-09-18 | 2026-09-18 | `tests/crash_in_process.rs`, 9 tests | Constructive steps inside the transaction, destructive ones after it (`Cleanup`); `commit_upload` finishes an unrecorded publish; `reconcile` at every opening; six named fault points behind the `fault-injection` feature |
+| PLAN-00002-STEP-07 | completed | 2026-09-18 | 2026-09-18 | `tests/kill.rs`: 181 kills, every point fired, and its control; `tests/model.rs`: 210 variants over the real stores in 2.2 s; `tests/two_processes.rs`: 15 of 15 runs; `tests/logs.rs` | Four flaws found here and fixed test first; see Deviations. Everything runs in `just check`: the real-store model takes 2 s and the harness 4 s |
+| PLAN-00002-STEP-08 | completed | 2026-09-18 | 2026-09-18 | `just check` exit 0, line coverage 95.94 %; `just audit` ok; links ok | Architecture (layout as built, ledger, "After a crash"), configuration, developer guide, backlog, changelog. `docs/api/` untouched, as the plan requires; one addition to it is proposed in the backlog |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 `skipped`. A skipped step requires explicit user approval recorded in Evidence.
@@ -615,26 +615,66 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 
 | Timestamp (UTC) | Step | Event | Evidence or reference | Next action |
 |---|---|---|---|---|
+| 2026-09-18T19:15:12Z | STEP-01 to STEP-08 | Every module test first: for each, the tests were written and seen to fail before the implementation, and each flaw found later got a failing test before its fix | The test names say which flaw each was written for | Hand-off |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
-
-None.
+| 2026-09-18T18:57:08Z | STEP-03 | Deviation: part of step 6's "order" was done in step 3, because making the shelf fallible exposed it. REQ-05 says "the shelf step comes first and the ledger transaction second". That is right for a constructive step (publish) and wrong for a destructive one: `commitRewrite` dropping the old generation *before* the record points to the new one would lose every item if the process died in between. Rules now run inside the ledger transaction, do constructive shelf steps there, and only *ask* for destructive ones (`Cleanup`), which `Engine` performs after the transaction has committed; a failure then is the janitor's to finish | REQ-05's sentence is refined, not contradicted: nothing is ever recorded that is not there, and nothing is destroyed that the record still points to. Step 6 tests it at every fault point | None; reported at hand-off |
+| 2026-09-18T19:15:12Z | STEP-05 | Deviation: the ledger's conformance suite is a module of the crate, not `tests/ledger_conformance.rs` | None: the same suite runs over both ledgers (AC-04) | None |
+| 2026-09-18T19:15:12Z | STEP-07 | Finding, fixed: the kill harness's child repeats its random source after a restart, so `beginUpload` handed out an upload id that already named a remembered outcome, and the commit was answered with the wrong item's outcome | With a real random source the chance is 2^-128; the rule is now that a known id is never handed out | None |
+| 2026-09-18T19:15:12Z | STEP-07 | Finding, fixed: the janitor removed an expired upload's staging place inside its transaction; killed before the commit, it left a ticket whose staging place was gone (`NOT_FOUND` on the next `putUploadContent`). The janitor's removals are now deferred like every destructive step, and a repeated `beginUpload` recreates a missing staging place | The ordering rule of the STEP-03 deviation, applied where it had been missed | None |
+| 2026-09-18T19:15:12Z | STEP-07 | Finding, fixed: several processes opening a new database at once were told "database is locked". Switching to WAL needs a moment alone with the database and SQLite does not apply the busy timeout to it. The ledger now waits for it itself. This is assumption A-04 of IDEA-00001, which the two-process test exists for: it holds, with this care | The CLI starting beside the server would have failed now and then | None |
+| 2026-09-18T19:15:12Z | STEP-07 | Finding, fixed: a client whose commit was refused during a rewrite began again, was told the content was stored meanwhile, and left its first ticket behind, holding quota until expiry. `beginUpload` now gives such a ticket up | A late `commitUpload` of it is answered `NOT_FOUND`, as the contract says of any forgotten upload | None |
+| 2026-09-18T19:15:12Z | STEP-08 | Observation for the user, not acted on: since content longer than announced is refused while it arrives, `putUploadContent` can answer `CONTENT_MISMATCH`. `docs/api/README.md` already says `Content-Length` must equal the announced size; `x-passalong-errors` of that operation in `openapi.json` does not list the code. The plan forbids touching the contract, so it is in the backlog | One line in `openapi.json` | @joelee |
 
 ### Verification results
 
 | Timestamp (UTC) | Step | Command or check | Result | Evidence |
 |---|---|---|---|---|
+| 2026-09-18T18:57:08Z | STEP-01 | `cargo deny check` | advisories ok, bans ok, licenses ok, sources ok | Terminal |
+| 2026-09-18T18:57:08Z | STEP-03 | `just check` | Exit 0: 46 unit, 4 model (210 variants on each of two shelves), 8 contract, 6 conformance | Terminal |
+| 2026-09-18T19:15:12Z | STEP-07 | `cargo test -p passalong-server-core --all-features --test kill -- --nocapture` | 2 passed. Fired: `engine: after the commit` 58, `ledger: before the commit` 58, `engine: between clean-ups` 23, `shelf: before the rename` 19, `upload: after the publish` 19, `shelf: inside a removal` 4; 181 kills | Terminal |
+| 2026-09-18T19:15:12Z | STEP-07 | `… --test model -- --nocapture` | 5 passed; 210 variants over memory, 210 with a clean-up cut short, 210 over the filesystem and SQLite in 2.2 s | Terminal |
+| 2026-09-18T19:15:12Z | STEP-07 | `… --test two_processes`, 15 times | 15 passed, after the WAL and ticket fixes; before them, about half failed | Terminal |
+| 2026-09-18T19:15:12Z | STEP-08 | `just check` | Exit 0: 59 unit, 9 crash, 2 kill, 1 log, 5 model, 8 contract, 17 shelf, 1 two-process; line coverage 95.94 % | Terminal |
+| 2026-09-18T19:15:12Z | STEP-08 | `just audit` | advisories ok, bans ok, licenses ok, sources ok; crates named: `rusqlite`, `serde`, `serde_json`, `tracing`, `tempfile` | Terminal |
 
 ### Completion summary
 
-- **Implementation status:** `not-started`
-- **Completed requirements:** None
-- **Incomplete requirements:** All
+- **Implementation status:** `completed`
+- **Completed requirements:** REQ-01 to REQ-09
+- **Incomplete requirements:** None
 - **Outstanding blockers:** None
-- **Review request:** Not ready
+- **Acceptance criteria:** AC-01 to AC-10 met. AC-03 with evidence: 194 of
+  196 baseline assertions are identical once `.unwrap()` is stripped, and
+  the other two did not change in meaning; step 3 then changed one test's
+  input, because content longer than announced is now refused on arrival.
+- **Verdict against IDEA-00001 r04 §14:**
+  - *Success: the same 210 variants pass over the filesystem shelf and the
+    SQLite ledger.* Met, in 2.2 s.
+  - *Success: after every kill and restart, I1 to I5 hold once the janitor
+    has passed.* Met: 181 kills, every passage of six fault points in six
+    scenarios; after each, the restarted server is consistent at once, the
+    client's repeated requests succeed, and the scenario ends as an
+    uninterrupted run does. The control shows that without the repair a
+    kill does break I4.
+  - *Failure: an invariant needs a two-phase protocol between the
+    filesystem and the database that the ordering rule cannot give.* Not
+    met. The ordering rule had to be said more exactly than r04 said it:
+    constructive shelf steps before the record is stored, destructive ones
+    after the transaction has committed. With that, ordering and
+    reconciliation suffice.
+  - Assumption A-04 (the CLI writing beside the daemon) holds, with one
+    piece of care SQLite does not take by itself: waiting for WAL mode.
+- **Recommendation:** build the HTTP surface on top. Next, per D-01: the
+  plan for API keys and the operations CLI.
+- **Not claimed:** anything about power loss (D-03), network filesystems,
+  or throughput.
+- **For the user:** one proposed line in `docs/api/openapi.json`
+  (`CONTENT_MISMATCH` on `putUploadContent`); see Deviations and the backlog.
+- **Review request:** Ready
 <!-- BUILDER_WORK_LOG_END -->
 
 ## 18. Planning change log
