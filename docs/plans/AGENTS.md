@@ -430,10 +430,41 @@ Only the user can approve a plan. On explicit approval:
 11. Do not alter the approved scope, requirements, steps, or acceptance criteria
     afterwards.
 
-Because the strict clean-state gate includes plan files, the user must manually
-commit or otherwise clean every newly written draft and draft revision before
-asking for another revision or approval. DeliveryPlanner never commits a draft or
-revision; it commits only the final approval update after explicit user approval.
+Because the strict clean-state gate includes plan files, every newly written
+draft and draft revision must be committed, or otherwise cleaned, before another
+revision or an approval.
+
+### Committing a draft
+
+The planner may commit a draft or a draft revision **only after an explicit
+instruction from the user that covers that plan**: either an instruction to
+commit it, or an explicit approval of it, which implies the commit the approval
+needs. It never commits a draft on its own initiative, and an instruction given
+for one plan does not carry over to the next. The user may always commit a
+draft themselves instead.
+
+When the planner commits a draft:
+
+1. The worktree must hold no change but the exact plan file. If it holds
+   anything else, stop and report the paths.
+2. Stage only that file with `git add -- <exact-plan-path>`, and verify with
+   `git diff --cached --name-only` that the staged set is exactly that path.
+3. Commit with the exact message:
+
+   ```text
+   docs(plan): draft PLAN-<ID> - <title>
+   ```
+
+   A later revision of the same draft uses `docs(plan): revise draft PLAN-<ID> -
+   <title>`. `<ID>` and `<title>` are as in the approval commit.
+4. Do not bypass Git hooks. If staging, a hook, or the commit fails, stop and
+   report the failure and the current Git status without attempting recovery.
+5. Verify the commit exists and the worktree is clean.
+
+The draft commit and the approval commit are always two commits: the first
+records what was proposed, the second that it was approved, by whom, and how
+each open decision was settled. When the user's approval is what authorised the
+draft commit, the approval transaction follows it at once.
 
 ### Builder execution
 
@@ -482,6 +513,9 @@ satisfy a workflow shape.
 - Never overwrite an existing numbered plan with a new planning target.
 - Never alter the planning sections of an approved plan; a material post-approval
   change requires a new superseding plan.
+- Never commit a draft without the user's explicit instruction or approval for
+  that plan, and then only the exact plan file, in a commit of its own, separate
+  from the approval commit.
 - Never stage or commit anything except the exact approved plan file during the
   approval transaction; never use `git add -A`, `git add .`, `git commit -a`,
   `--amend`, `--no-verify`, or a broader pathspec.
