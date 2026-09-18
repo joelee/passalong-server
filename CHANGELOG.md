@@ -6,6 +6,12 @@ passalong client's.
 
 ## Unreleased
 
+- API keys and the operations CLI (PLAN-00003): keys that expire, can be
+  revoked, and are stored only as hashes; workspaces; the configuration
+  file; logging; `passalong-server init`, `workspace`, `key`, `rewrite`,
+  and `check`. The control database moves to schema version 2, migrated in
+  place at opening: copy `control.sqlite` first, since a version-2 database
+  does not open in an older build.
 - Storage under the rules (PLAN-00002): a filesystem shelf and a SQLite
   control database behind the protocol spike's rules, reconciliation at
   start-up, and a harness that kills the process at every boundary between

@@ -1,8 +1,9 @@
 # Configuration
 
-> **Draft.** No code reads this configuration yet; the keys are the proposal
-> of [IDEA-00001](ideas/00001-HTTPS_Server_Backend-r04.md).
-> [`config.sample.toml`](../config.sample.toml) shows them with defaults.
+> Read by `passalong-server` since PLAN-00003. The `listen` and `tls`
+> sections are parsed and validated today and used by `serve`, which arrives
+> with the HTTP slice. [`config.sample.toml`](../config.sample.toml) is the
+> file `init` writes, and a test keeps it valid.
 
 ## Where the file is found
 
@@ -15,16 +16,19 @@ The first of these that exists:
 5. `/etc/passalong-server/config.toml`
 6. `./config.toml`
 
-Unknown keys are rejected, as in the client.
+Unknown keys and sections are errors, naming the key and the line, as in
+the client. A file that `--config` or `PASSALONG_SERVER_CONFIG_FILE` names
+must exist. Sizes are a number of bytes, alone or with `KiB`, `MiB`, `GiB`,
+or `TiB` (`"20 GiB"`); `"unlimited"` where the table says so.
 
 ## Keys
 
 | Key | Default | Meaning |
 |---|---|---|
-| `server.log_level` | `info` | `error`, `warning`, `info`, `verbose`, or `debug` |
+| `server.log_level` | `info` | `error`, `warning`, `info`, `verbose`, or `debug`. Logs go to standard error, and only an allow-list of fields is ever written: ids, counts, outcomes, and what a store said |
 | `server.data_dir` | `/var/lib/passalong-server` | Workspaces, the control database, staging. On a local filesystem: the control database uses SQLite's WAL mode, which needs shared memory that network filesystems do not give |
 | `listen.address` | `0.0.0.0:8443` | Address and port |
-| `listen.mode` | `tls` | `tls`, or `plain` behind a TLS-terminating proxy |
+| `listen.mode` | `tls` | `tls`, or `plain` behind a TLS-terminating proxy. `plain` on an address that is not loopback is refused unless `listen.behind_proxy` is true |
 | `listen.behind_proxy` | `false` | Required for `plain` on a non-loopback address; also makes the server trust `X-Forwarded-For` for rate limiting |
 | `tls.cert_file`, `tls.key_file` | none | PEM files, re-read when they change |
 | `limits.max_item_bytes` | `"unlimited"` | Largest item; see [below](#the-item-size-limit). Clients read the value before they upload |

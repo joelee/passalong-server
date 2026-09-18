@@ -1,10 +1,11 @@
 # Architecture
 
-> **Partly built.** No server exists yet. The rules of workspaces, uploads,
+> **Partly built.** No server listens yet. The rules of workspaces, uploads,
 > and rewrite sessions (PLAN-00001), and the filesystem shelf and SQLite
 > control database under them, tested with the process killed at every
-> boundary between the two (PLAN-00002), exist in `passalong-server-core`.
-> Everything around them is still the design proposed by
+> boundary between the two (PLAN-00002), and API keys, workspaces, the
+> configuration, logging, and the operator's commands (PLAN-00003) exist.
+> The HTTP surface, TLS, Docker, and systemd are still the design proposed by
 > [IDEA-00001](ideas/00001-HTTPS_Server_Backend-r04.md) and becomes the
 > description of the real system as plans deliver it.
 
@@ -81,10 +82,13 @@ flowchart TB
    small fixed size; only content streams are large, and those go to disk
    as they arrive. Failed authentications are rate-limited per client
    address.
-3. The auth layer reads `Authorization: Bearer pal_<key id>_<secret>`, looks
-   the key id up in the control database, compares the secret's SHA-256 in
-   constant time, and rejects expired or revoked keys with a distinct,
-   non-retryable error. It attaches the key's **workspace** and **role** to
+3. The auth layer reads `Authorization: Bearer pal_<key id>_<secret>` (12
+   and 64 lower-case hex digits) and calls `Control::authenticate`, which
+   exists: it looks the key id up in the control database, compares the
+   secret's SHA-256 in constant time, against a dummy when the id is
+   unknown so that both cost the same, and answers `UNAUTHENTICATED` without
+   saying which was wrong. Only for the right secret does it go on to
+   `KEY_REVOKED` or `KEY_EXPIRED`, which are distinct and not retryable. It attaches the key's **workspace** and **role** to
    the request. No request names a workspace; the key is the only source.
    Keys are checked against the database on every request, so a revocation
    holds from the next request on. If the database cannot be read, the
@@ -212,8 +216,13 @@ path any other way.
 
 ### The ledger
 
-`control.sqlite`, WAL mode, schema version 1; a database of a newer version
-is refused. `passalong_server_core::ledger::sqlite` has the DDL.
+`control.sqlite`, WAL mode, schema version 2. The schema is an ordered list
+of steps (`passalong_server_core::control::schema`); an older database is
+migrated when it is opened, every missing step in one transaction, so a
+failed migration leaves it exactly as it was, and a newer one is refused.
+Version 1 as it was released is kept as a test fixture, and the migration
+is tested against it. `workspaces` also holds each workspace's name, quota,
+and creation time since version 2.
 
 | Table | Holds |
 |---|---|
@@ -222,6 +231,8 @@ is refused. `passalong_server_core::ledger::sqlite` has the DDL.
 | `uploads` | Tickets: owner, proposed id, `meta`, size, expected key id, expiry |
 | `tombstones` | Outcomes of finished uploads, kept for replays |
 | `ended_rewrites` | New key ids of aborted rewrites, kept for good |
+| `api_keys` | Since version 2: key id, workspace, SHA-256 of the secret, label, role, creation, expiry, revocation, last use |
+| `audit` | Since version 2: when, what (`key.revoke`, `workspace.create`, …), which workspace and key |
 | `schema_version` | One row |
 
 Every transaction begins `IMMEDIATE`. SQLite then queues writers, in this

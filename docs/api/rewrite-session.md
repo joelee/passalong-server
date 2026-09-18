@@ -59,6 +59,10 @@ when, and which ids are staged.
 - After a take-over the former holder's requests are refused with
   `LEASE_HELD`: staging, `heartbeatRewrite`, `commitRewrite`, and
   `abortRewrite` alike. An upload it began cannot commit.
+- The operator can end a session from the host, with `passalong-server
+  rewrite abort <workspace>`: no API key and no words are needed, since an
+  abort destroys only the staged copy. While the lease runs it needs
+  `--force`. The session's new key id is ended like any aborted one's.
 - A session nobody recovers shuts writers out for good, exactly as a stale
   `.rewrite/` lock does today. `serve` should say so when it meets
   `REWRITE_IN_PROGRESS` past `leaseExpiresAt`.

@@ -7,8 +7,7 @@ Future work not covered by an active plan. Completed items are removed.
 ### v0.1.0
 - **The next slices of server v0.1.0**, each with its own plan (PLAN-00002
   D-01), now that the storage slice is done (PLAN-00002, completed):
-  1. API keys and the operations CLI: `init`, `workspace`, `key`, `check`;
-     the control database gains its `api_keys` and audit tables.
+  1. Done: API keys and the operations CLI (PLAN-00003).
   2. The HTTP surface and TLS: routes exported to `openapi.json`, the
      authentication layer, limits, the plaintext content check
      (IDEA-00001-R04-LOW-05), the janitor on a timer, `serve`.
@@ -44,8 +43,12 @@ Future work not covered by an active plan. Completed items are removed.
 
 - **An in-memory id index per workspace.** Listing reads the directory;
   measure before optimising.
-- **`workspace show` and an operator's abort of a dead rewrite session**
-  (IDEA-00001-R04-LOW-04), with the CLI slice.
+
+- **Rate limiting of failed authentications**: `limits.auth_failures_per_minute`
+  is parsed and waits for the HTTP slice, which has the client address.
+- **`passalong-server audit`**: the audit trail is written since PLAN-00003
+  and has no command to read it yet.
+- **A send-only role** stays deferred (IDEA-00001 r04 §15).
 
 ### Process
 
