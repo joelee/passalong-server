@@ -33,13 +33,13 @@ confidence: medium
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; the planner initializes them.
-implementation_status: not-started
-builder_agent: null
-builder_model: null
-execution_branch: null
-execution_started_at: null
-execution_updated_at: null
-execution_completed_at: null
+implementation_status: completed
+builder_agent: Claude Code
+builder_model: "anthropic/claude-fable-5-1"
+execution_branch: "feature/http-and-tls"
+execution_started_at: "2026-09-18T21:51:00Z"
+execution_updated_at: "2026-09-18T22:44:35Z"
+execution_completed_at: "2026-09-18T22:44:35Z"
 current_step: null
 ---
 
@@ -686,17 +686,17 @@ Builder stops: that would be a design flaw in D-04, not a bug.
 
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
-| PLAN-00004-STEP-01 | not-started | — | — | — | — |
-| PLAN-00004-STEP-02 | not-started | — | — | — | — |
-| PLAN-00004-STEP-03 | not-started | — | — | — | — |
-| PLAN-00004-STEP-04 | not-started | — | — | — | — |
-| PLAN-00004-STEP-05 | not-started | — | — | — | — |
-| PLAN-00004-STEP-06 | not-started | — | — | — | — |
-| PLAN-00004-STEP-07 | not-started | — | — | — | — |
-| PLAN-00004-STEP-08 | not-started | — | — | — | — |
-| PLAN-00004-STEP-09 | not-started | — | — | — | — |
-| PLAN-00004-STEP-10 | not-started | — | — | — | — |
-| PLAN-00004-STEP-11 | not-started | — | — | — | — |
+| PLAN-00004-STEP-01 | completed | 2026-09-18 | 2026-09-18 | `just check`, `just audit` exit 0; no `skip` entry | `axum` 0.8 without default features (`http1`, `json`, `matched-path`, `query`, `tokio`), `hyper`, `hyper-util`, `rustls` and `tokio-rustls` on `ring`, `rcgen`. `ring` needs `getrandom` 0.2, so ours is pinned to 0.2 rather than allowing two versions |
+| PLAN-00004-STEP-02 | completed | 2026-09-18 | 2026-09-18 | Core suites pass unchanged: model 210 variants, 181 kills, two processes | Every engine operation takes `&self`; the ledger's transaction is the lock. `Limits::check_plaintext_content`, on in the server; the suites that use made-up ids turn it off and say so. `Engines` opens a workspace's engine once and shares it |
+| PLAN-00004-STEP-03 | completed | 2026-09-18 | 2026-09-18 | `tests/skeleton.rs`, 9 tests | Own `Listener`, so that TLS is a second variant of `Conn` and not a second server. Request ids, a panic caught per request and answered 500 `INTERNAL`, one log line per request with fields of the allow-list only, 256 KiB cap on JSON bodies |
+| PLAN-00004-STEP-04 | completed | 2026-09-18 | 2026-09-18 | `tests/skeleton.rs`: 8 MiB body with a wrong key answered 401 before it is sent | The bearer layer runs before any body is read and asks the control database every time, on the blocking pool |
+| PLAN-00004-STEP-05 | completed | 2026-09-18 | 2026-09-18 | `tests/items.rs`, 9 tests; 64 MiB up and down with the bridge holding at most 8 × 64 KiB | **The checkpoint found two defects.** (1) `meta` came back re-spelled: `json!` parses a `RawValue`. Answers are now typed structs, and `meta` is the client's bytes. (2) A slow upload held every other request of the workspace up: the engine kept its random source locked for the whole of a rule, and `putUploadContent` is a rule that lasts as long as the client sends. The lock is now taken for one id. Pinned by a core test, `content_that_arrives_slowly_holds_no_other_request_up` |
+| PLAN-00004-STEP-06 | completed | 2026-09-18 | 2026-09-18 | `tests/rewrite.rs`, 7 tests | **Three findings.** (1) `Engines` told the time by the machine's clock, not the injected one; it now takes the clock. (2) A commit of a staged upload answered the workspace's item of the same id instead of the staged copy. An outcome now says `staged`, which a replayed commit needs as well, so it is stored: schema step 3, one column; the HTTP contract is unchanged. (3) The encryption header had the flaw `meta` had, and the same cure. `LEASE_HELD` and `REWRITE_IN_PROGRESS` carry `leaseExpiresAt`, as `docs/api/README.md` promises |
+| PLAN-00004-STEP-07 | completed | 2026-09-18 | 2026-09-18 | `tests/contract.rs`, 3 tests: the table against `openapi.json` (26 of 26, no difference); every operation served with success; isolation both ways, with and without an open rewrite | Every request of these tests is built from the route table by operation id. An operation without an isolation case fails the test by name. Two operations may succeed for the attacker, by design, and tell nothing: `abortUpload` (204 for any unknown id) and `abortRewrite` with no session open (the caller's own state). REQ-11 found no difference between contract and code |
+| PLAN-00004-STEP-08 | completed | 2026-09-18 | 2026-09-18 | `tls.rs`, 4 unit tests; `tests/tls.rs`, 4 tests; `cli/tests/session.rs`, 1 test. `curl --pinnedpubkey` accepts the pin the tool prints | The SubjectPublicKeyInfo comes from rustls's own parser, so no DER is read by hand. Handshakes are tasks of their own, at most 1024 at once, ten seconds each. The pair is looked at every 30 s by modification time and size; a broken or mismatched pair is logged once and the old one kept. `self-signed` checks names itself, since the certificate library takes any text, and never writes over a pair or half of one. `init` now puts the `[tls]` paths in `tls/` beside the configuration file, where a non-root operator can write |
+| PLAN-00004-STEP-09 | completed | 2026-09-18 | 2026-09-18 | `rate.rs`, 5 unit tests; `tests/rate.rs`, 4 tests with the injected clock | Done before step 8, which it does not depend on. New `ApiError::RateLimited` (the code was in the contract already). Only guesses count: no key, or an unknown one. An expired or revoked key was the right secret and is not counted, so a forgotten device cannot shut out its network. IPv6 is counted per /64. At most 10,000 addresses |
+| PLAN-00004-STEP-10 | completed | 2026-09-18 | 2026-09-18 | `api/tests/serve.rs`, 3 tests; `cli/tests/serve.rs`, 2 tests that start the binary in both modes | The drain is bounded at 30 s: without the bound a client that never finishes kept the process for ever, which the test showed first. `check --health` runs before the owner check, since it touches nothing, and in `tls` mode connects by the pin of the configured certificate. The janitor passes every ten minutes; tested with the clock moved 25 hours. The log test reads the binary's own log: request ids, key ids, operations, and no part of the token. The log-field test now reads the API's and the CLI's sources too |
+| PLAN-00004-STEP-11 | completed | 2026-09-18 | 2026-09-18 | `just check` exit 0, line coverage 95.99 %; `just audit` ok, `skip = []`; links ok | `README.md`, `docs/usage.md` with a real `curl` session, `docs/architecture.md` as built, `docs/configuration.md`, `docs/backlog.md`, `CHANGELOG.md` |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 `skipped`. A skipped step requires explicit user approval recorded in Evidence.
@@ -705,26 +705,55 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 
 | Timestamp (UTC) | Step | Event | Evidence or reference | Next action |
 |---|---|---|---|---|
+| 2026-09-18T22:28:07Z | STEP-01 to STEP-07, STEP-09 | Steps 8 and 9 in either order, as the hand-off allows; 9 first. Tests written and seen to fail before each implementation. The checkpoint of step 5 held: content streams, and the bridge's bound is asserted | Test names in the step table | STEP-08 |
+| 2026-09-18T22:44:35Z | STEP-08, STEP-10, STEP-11 | Tests first again; the binary's two tests passed at their first run | Test names in the step table | Hand-off |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
-
-None.
+| 2026-09-18T22:28:07Z | STEP-06 | The control database gains schema step 3 (`tombstones.staged`), which the plan did not foresee | Migrated on open like step 2, tested from the version 1 fixture. Nothing a client can notice | Nobody; reported at hand-off |
+| 2026-09-18T22:44:35Z | STEP-08 | `base64` became a direct dependency of the API crate, for the pin. It was in the tree already, through `rcgen`; no package was added, and `just audit` passes without a `skip` | None | Nobody; reported at hand-off |
+| 2026-09-18T22:44:35Z | STEP-08 | `init` writes other `[tls]` paths than before: `tls/` beside the configuration file instead of `/etc/passalong-server/tls/` | A configuration written by an earlier `init` keeps its paths. `config.sample.toml` is unchanged | Nobody; reported at hand-off |
 
 ### Verification results
 
 | Timestamp (UTC) | Step | Command or check | Result | Evidence |
 |---|---|---|---|---|
+| 2026-09-18T22:28:07Z | STEP-09 | `just check` | Exit 0 | Line coverage 96.05 % |
+| 2026-09-18T22:44:35Z | STEP-11 | `just check` | Exit 0 | Line coverage 95.99 %; region 93.47 % |
+| 2026-09-18T22:44:35Z | STEP-11 | `just audit` | Exit 0 | advisories, bans, licenses, sources ok; `skip = []` |
+| 2026-09-18T22:44:35Z | STEP-11 | `tests/tls.rs`, `tests/serve.rs`, `tests/rate.rs`, three times over | Pass each time | The tests that wait on timers |
+| 2026-09-18T22:44:35Z | STEP-11 | A session with `curl` over TLS by pin against the release binary | As `docs/usage.md` shows it | The token is nowhere in the server's log |
 
 ### Completion summary
 
-- **Implementation status:** `not-started`
-- **Completed requirements:** None
-- **Incomplete requirements:** All
+- **Implementation status:** `completed`
+- **Completed requirements:** REQ-01 to REQ-12
+- **Incomplete requirements:** None
 - **Outstanding blockers:** None
-- **Review request:** Not ready
+- **Acceptance criteria:** AC-01 to AC-14 met. AC-02 with the note above:
+  `base64` is named directly now and was in the tree before.
+- **Contract changes (REQ-11):** None. The route table and `openapi.json`
+  agreed on all 26 operations at the first comparison, and no route showed
+  the contract to be wrong. `docs/api/README.md` lost the sentence that the
+  document would one day be exported from the routes; its tables are
+  untouched.
+- **Not in the contract, and changed:** the control database's schema,
+  step 3 (`tombstones.staged`), migrated at opening.
+- **Defects this slice found in earlier slices:** the engine's random source
+  locked for the length of a rule (PLAN-00002); `Engines` on the machine's
+  clock; the commit of a staged upload answering the wrong item of two with
+  one id (PLAN-00001's rules allowed the id, nothing had asked over HTTP).
+- **What the Docker and systemd slice inherits:** `serve` stops on SIGTERM
+  within 30 seconds and exits 0, so `TimeoutStopSec` and the container's
+  stop timeout must be longer; `check --health` is the health check, reads
+  the configuration and in `tls` mode the certificate, and needs no
+  ownership of the data directory; `init` expects the pair in `tls/` beside
+  the configuration file, which for the image means a volume or a mount
+  there; `service` is still a stub that says so.
+- **A transcript** of a session with `curl` is in `docs/usage.md`.
+- **Review request:** Ready
 <!-- BUILDER_WORK_LOG_END -->
 
 ## 18. Planning change log
