@@ -33,13 +33,13 @@ confidence: medium
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; the planner initializes them.
-implementation_status: not-started
-builder_agent: null
-builder_model: null
-execution_branch: null
-execution_started_at: null
-execution_updated_at: null
-execution_completed_at: null
+implementation_status: completed
+builder_agent: Claude Code
+builder_model: "anthropic/claude-fable-5-1"
+execution_branch: "feature/keys-and-cli"
+execution_started_at: "2026-09-18T19:55:00Z"
+execution_updated_at: "2026-09-18T21:11:41Z"
+execution_completed_at: "2026-09-18T21:11:41Z"
 current_step: null
 ---
 
@@ -615,15 +615,15 @@ by a second process.
 
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
-| PLAN-00003-STEP-01 | not-started | — | — | — | — |
-| PLAN-00003-STEP-02 | not-started | — | — | — | — |
-| PLAN-00003-STEP-03 | not-started | — | — | — | — |
-| PLAN-00003-STEP-04 | not-started | — | — | — | — |
-| PLAN-00003-STEP-05 | not-started | — | — | — | — |
-| PLAN-00003-STEP-06 | not-started | — | — | — | — |
-| PLAN-00003-STEP-07 | not-started | — | — | — | — |
-| PLAN-00003-STEP-08 | not-started | — | — | — | — |
-| PLAN-00003-STEP-09 | not-started | — | — | — | — |
+| PLAN-00003-STEP-01 | completed | 2026-09-18 | 2026-09-18 | `just check`, `just audit` exit 0 | `clap`, `toml`, `sha2`, `getrandom`, `subtle`, `tracing-subscriber` (`fmt`, `std`) |
+| PLAN-00003-STEP-02 | completed | 2026-09-18 | 2026-09-18 | 5 unit tests | `ApiKey` has no `Display`; its `Debug` shows the key id. `SecretHash::of_nothing` is what an unknown key id is compared with |
+| PLAN-00003-STEP-03 | completed | 2026-09-18 | 2026-09-18 | 3 migration tests; kill harness, model, two processes pass over schema 2 | The schema is an ordered list of steps in `control/schema.rs`; version 1 as committed at `a7260ad` is a fixture, `tests/fixtures/schema_v1.sql`. A failed step rolls the whole migration back |
+| PLAN-00003-STEP-04 | completed | 2026-09-18 | 2026-09-18 | 11 unit tests | A finding before writing code: in WAL mode a writer does not block readers, so a test that expected an exclusive lock to fail authentication was wrong, and so would the behaviour have been. A writer elsewhere leaves authentication working and only skips the note of last use; a database that cannot answer fails closed |
+| PLAN-00003-STEP-05 | completed | 2026-09-18 | 2026-09-18 | 1 unit test | `operator_abort_rewrite(force)`; every abort now shares `end_aborted` |
+| PLAN-00003-STEP-06 | completed | 2026-09-18 | 2026-09-18 | 9 unit tests | TLS mode with no `[tls]` section parses, so that an empty file is all defaults; `check` and, later, `serve` say what is missing |
+| PLAN-00003-STEP-07 | completed | 2026-09-18 | 2026-09-18 | 3 unit tests; `tests/logs.rs` extended | The stop condition did not arise: the allow-list is a `FormatFields` on the standard formatter. A test reads this crate's sources and fails if a logged field is not on the list |
+| PLAN-00003-STEP-08 | completed | 2026-09-18 | 2026-09-18 | `cli/tests/session.rs`, 3 tests; 5 unit tests | All passed at the first run. The owner check follows `/proc/self`, and a test pins that it answers this user and not root. A CLI test of a refusal as another user is not possible without root, as the plan foresaw; the comparison is unit-tested for root and for a stranger |
+| PLAN-00003-STEP-09 | completed | 2026-09-18 | 2026-09-18 | `just check` exit 0, line coverage 96.38 %; `just audit` ok; links ok | `docs/usage.md` is no longer a draft; a script checked that every command in it is run by the session test or belongs to a later slice, and the test checks that those say so |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 `skipped`. A skipped step requires explicit user approval recorded in Evidence.
@@ -632,26 +632,44 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 
 | Timestamp (UTC) | Step | Event | Evidence or reference | Next action |
 |---|---|---|---|---|
+| 2026-09-18T21:11:41Z | STEP-01 to STEP-09 | Every module test first: tests written and seen to fail before the implementation | Test names | Hand-off |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
-
-None.
+| 2026-09-18T21:11:41Z | STEP-04 | Finding, before any code: a test expected an exclusive lock held elsewhere to make `authenticate` fail closed. In WAL mode a writer does not block readers, and it should not: the CLI in the middle of a transaction must not lock every device out. `authenticate` reads, and treats the note of last use as a note: if it cannot be written, it is skipped. A database that cannot *answer* fails closed, and a test drops the table to show it | REQ-02 as written holds; D-05's note is best-effort by design | None |
+| 2026-09-18T21:11:41Z | STEP-06 | Deviation: `listen.mode = "tls"` without a `[tls]` section parses. Otherwise an empty file, which must be all defaults, would be an error. `check` says what `serve` will need | None on this slice; the HTTP slice must refuse to serve without the files | None |
+| 2026-09-18T21:11:41Z | STEP-08 | As foreseen in §15: no CLI test runs as another user. AC-08 is met by the unit tests of the comparison and by the test that the followed link, not the link, is read | None | None |
 
 ### Verification results
 
 | Timestamp (UTC) | Step | Command or check | Result | Evidence |
 |---|---|---|---|---|
+| 2026-09-18T21:04:32Z | STEP-07 | `just check` | Exit 0; 91 unit tests, and the storage tests unchanged over schema 2 | Terminal |
+| 2026-09-18T21:11:41Z | STEP-08 | `cargo test -p passalong-server --all-features` | 5 unit, 3 session tests pass | Terminal |
+| 2026-09-18T21:11:41Z | STEP-09 | `just check` | Exit 0; line coverage 96.38 % (`control` 98 %, `config` 99.5 %, the CLI's commands 91 %) | Terminal |
+| 2026-09-18T21:11:41Z | STEP-09 | `just audit` | advisories ok, bans ok, licenses ok, sources ok | Terminal |
 
 ### Completion summary
 
-- **Implementation status:** `not-started`
-- **Completed requirements:** None
-- **Incomplete requirements:** All
+- **Implementation status:** `completed`
+- **Completed requirements:** REQ-01 to REQ-10
+- **Incomplete requirements:** None
 - **Outstanding blockers:** None
-- **Review request:** Not ready
+- **Acceptance criteria:** AC-01 to AC-12 met; AC-08 as the plan foresaw,
+  without a CLI run as another user.
+- **What the HTTP slice inherits:** `Control::authenticate(token)`, which
+  answers a workspace and a `Caller` or one of four codes and reads the
+  database every time; `Config`, with `listen` and `tls` already validated;
+  `telemetry::init`; `Engine::open` over `FsShelf` and `SqliteLedger` with
+  `Config::limits_for`; and a CLI in which `serve` is a stub that says so.
+  It must: refuse to serve in TLS mode without the two files; add rate
+  limiting of failed authentications, for which the configuration key
+  exists; and run the janitor on a timer.
+- **A transcript** of a session on a scratch host is in the hand-off
+  message; the session test is its executable form.
+- **Review request:** Ready
 <!-- BUILDER_WORK_LOG_END -->
 
 ## 18. Planning change log
