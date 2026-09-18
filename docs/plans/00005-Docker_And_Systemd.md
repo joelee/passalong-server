@@ -8,10 +8,10 @@ tags:
   - claude-code
 type: delivery-plan
 plan_id: "PLAN-00005"
-plan_status: draft
+plan_status: approved
 plan_kind: initial
 created_at: "2026-09-18T22:59:35Z"
-approved_at: null
+approved_at: "2026-09-18T23:11:48Z"
 planner_agent: Claude Code
 planner_model: "anthropic/claude-fable-5-1"
 triggered_by: user
@@ -26,8 +26,8 @@ previous_plan: null
 requirements_count: 9
 steps_count: 7
 acceptance_criteria_count: 12
-blocking_decisions: 2
-build_ready: false
+blocking_decisions: 0
+build_ready: true
 web_research_used: false
 confidence: medium
 
@@ -45,12 +45,11 @@ current_step: null
 
 # Delivery Plan 00005: Docker And Systemd
 
-> [!abstract] Plan status: `draft`
+> [!abstract] Plan status: `approved`
 > The fourth and last slice of server v0.1.0: the server as something an
 > operator installs, with `docker compose up` or with `service install`,
-> each tested end to end. Two decisions await the user: D-01 (where a
-> container keeps its data) and D-02 (what `service install` may do to a
-> host). Approving the plan with them as proposed resolves both.
+> each tested end to end. D-01 (two named volumes) and D-02 (`service
+> install` sets the host up and installs itself) were accepted at approval.
 
 ## 1. Objective and outcome
 
@@ -154,8 +153,8 @@ material.
 
 | ID | Decision or blocker | Resolution | Owner | Status |
 |---|---|---|---|---|
-| PLAN-00005-D-01 | Where a container keeps its data and configuration | Proposed: **two named volumes**, `data` at `/var/lib/passalong-server` and `config` at `/etc/passalong-server` (configuration and the TLS pair). A fresh named volume takes the ownership the image gave the directory, so uid 10001 owns both with no step for the operator, and the owner rule is satisfied by `compose exec` as it is. The present draft's bind mounts (`./data`, `./config.toml`, `./tls`) are created by the Docker daemon as root: the server could not write its database, and every command would be refused by the owner rule. The alternative is bind mounts plus `user: "${PUID}:${PGID}"`, as the client's SSH deployment does; it keeps files visible on the host, and costs an override of `user:` that r04 said the compose file must never have, plus a pair the operator must make readable to that uid. The README documents bind mounts for those who want them (`chown 10001`), without making them the default | User | Awaiting the user |
-| PLAN-00005-D-02 | What `service install` may do to a host, and how a systemd host gets its binary (r04's open question) | Proposed: the operator builds with `cargo build --release` and runs `sudo target/release/passalong-server service install`. The command installs **itself** to `/usr/local/bin/passalong-server`, creates the system user through a `sysusers.d` file, creates the three directories, writes the initial configuration when there is none, makes a self-signed pair only when `--host` or `--ip` is given and there is none, writes and enables the unit, and starts it when it can start. Everything is idempotent and nothing existing is overwritten. The alternative is a command that only writes the unit and prints the rest as instructions: less done to the host as root, and an install that is six manual steps, each a place to get ownership wrong, which is the mistake the owner rule exists to catch | User | Awaiting the user |
+| PLAN-00005-D-01 | Where a container keeps its data and configuration | **Two named volumes**, `data` at `/var/lib/passalong-server` and `config` at `/etc/passalong-server` (configuration and the TLS pair). A fresh named volume takes the ownership the image gave the directory, so uid 10001 owns both with no step for the operator, and the owner rule is satisfied by `compose exec` as it is. The present draft's bind mounts (`./data`, `./config.toml`, `./tls`) are created by the Docker daemon as root: the server could not write its database, and every command would be refused by the owner rule. The alternative is bind mounts plus `user: "${PUID}:${PGID}"`, as the client's SSH deployment does; it keeps files visible on the host, and costs an override of `user:` that r04 said the compose file must never have, plus a pair the operator must make readable to that uid. The README documents bind mounts for those who want them (`chown 10001`), without making them the default | User | Resolved: accepted as proposed at approval |
+| PLAN-00005-D-02 | What `service install` may do to a host, and how a systemd host gets its binary (r04's open question) | The operator builds with `cargo build --release` and runs `sudo target/release/passalong-server service install`. The command installs **itself** to `/usr/local/bin/passalong-server`, creates the system user through a `sysusers.d` file, creates the three directories, writes the initial configuration when there is none, makes a self-signed pair only when `--host` or `--ip` is given and there is none, writes and enables the unit, and starts it when it can start. Everything is idempotent and nothing existing is overwritten. The alternative is a command that only writes the unit and prints the rest as instructions: less done to the host as root, and an install that is six manual steps, each a place to get ownership wrong, which is the mistake the owner rule exists to catch | User | Resolved: accepted as proposed at approval |
 | PLAN-00005-D-03 | Creating the service user | `systemd-sysusers` with a file in `/etc/sysusers.d/`, not `useradd`: it is there wherever systemd is, it is idempotent, and its flags do not differ between distributions | Planner | Resolved |
 | PLAN-00005-D-04 | Testing `service install` without root on the Builder's machine | A throwaway container with systemd as PID 1 (`just test-service`), which needs Docker and nothing of the host's systemd. STEP-06 carries the stop condition and the fallback | Planner | Resolved |
 | PLAN-00005-D-05 | Stop timeouts | 45 seconds in both: `stop_grace_period` and `TimeoutStopSec`. `serve` drains for at most 30; Docker's default of 10 would kill it mid-request | Planner | Resolved |
@@ -493,6 +492,7 @@ None.
 | Timestamp (UTC) | Plan status | Change | Reason | Requested/approved by |
 |---|---|---|---|---|
 | 2026-09-18T22:59:35Z | draft | Plan created | "Please commit work and start planning for the next slice." | @joelee |
+| 2026-09-18T23:11:48Z | approved | Approved ("D-01 and D-02 as proposed. Plan approved. Let's go."). The draft was committed by the planner on that approval, as `docs/plans/AGENTS.md`, "Committing a draft", allows | User approval | @joelee |
 
 ## 19. External references
 
