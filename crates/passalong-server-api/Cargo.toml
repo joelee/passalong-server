@@ -1,0 +1,16 @@
+[package]
+name = "passalong-server-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "passalong server API: GraphQL schema, content endpoints, authentication, and TLS"
+
+[dependencies]
+passalong-server-core.workspace = true
+
+[lints]
+workspace = true

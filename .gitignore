@@ -1,0 +1,15 @@
+/target/
+.env
+*.profraw
+lcov.info
+# Never commit a server's state: TLS private keys, the control database
+# (it holds API key hashes), or stored items.
+*.pem
+*.key
+*.sqlite
+*.sqlite-*
+/data/
+# A server run from deploy/docker in place.
+deploy/docker/.env
+deploy/docker/data/
+deploy/docker/tls/

@@ -1,0 +1,54 @@
+# systemd system unit for `passalong-server serve`. DRAFT.
+#
+# `passalong-server service install` writes this unit with the right paths,
+# creates the `passalong-server` user, enables the unit, and starts it; a
+# test keeps this file identical to the template it renders. By hand:
+#   sudo cp docs/service/passalong-server.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now passalong-server.service
+# Logs:
+#   journalctl -u passalong-server.service -f
+#
+# Unlike the client's unit this is a system unit: a server has no desktop
+# session and must run before anyone logs in.
+
+[Unit]
+Description=passalong-server: clipboard and file sharing between your devices
+Documentation=https://github.com/joelee/passalong-server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/passalong-server serve
+User=passalong-server
+Group=passalong-server
+# /var/lib/passalong-server and /etc/passalong-server, owned and private.
+StateDirectory=passalong-server
+StateDirectoryMode=0700
+ConfigurationDirectory=passalong-server
+Restart=on-failure
+RestartSec=5
+# error, warning, info, verbose, or debug
+Environment=PASSALONG_SERVER_LOG_LEVEL=info
+
+# Hardening: the server needs the network and its state directory only.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+# Listening below port 1024 would need: AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

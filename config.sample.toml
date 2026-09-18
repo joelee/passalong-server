@@ -1,0 +1,35 @@
+# passalong-server configuration. DRAFT: the keys below are the proposal of
+# docs/ideas/00001 and are not read by any code yet.
+# Copy to /etc/passalong-server/config.toml and edit. Every key is
+# documented in docs/configuration.md. No secret goes here.
+
+[server]
+# error | warning | info | verbose | debug
+log_level = "info"
+# Workspaces, the control database, and staging live below this directory.
+data_dir = "/var/lib/passalong-server"
+
+[listen]
+address = "0.0.0.0:8443"
+# "tls": the server speaks HTTPS itself, with the files under [tls].
+# "plain": plain HTTP for a TLS-terminating reverse proxy. Refused on a
+# non-loopback address unless behind_proxy = true says you mean it.
+mode = "tls"
+behind_proxy = false
+
+[tls]
+# PEM files, re-read when they change, so renewals need no restart.
+cert_file = "/etc/passalong-server/tls/cert.pem"
+key_file = "/etc/passalong-server/tls/key.pem"
+
+[limits]
+# Largest single item. Uploads stream to disk, so this is not memory.
+max_item_bytes = "2 GiB"
+# Default quota of a new workspace; `workspace create --quota` overrides it.
+workspace_quota_bytes = "20 GiB"
+# Failed authentications per client address per minute before 429.
+auth_failures_per_minute = 10
+
+[staging]
+# Uploads and rewrite sessions nobody finished are removed after this long.
+max_age_hours = 24

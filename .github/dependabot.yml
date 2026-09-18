@@ -1,0 +1,8 @@
+# Monthly pull requests that update the GitHub Actions the workflows use.
+# Cargo dependencies are updated by hand and checked by `just audit`.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

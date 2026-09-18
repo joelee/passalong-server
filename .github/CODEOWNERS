@@ -1,0 +1,11 @@
+# The maintainer reviews every change to CI, release tooling, dependencies,
+# and the API contract. Enforced when the `main` ruleset requires
+# code-owner review.
+/.github/               @joelee
+/scripts/               @joelee
+/deny.toml              @joelee
+/Cargo.toml             @joelee
+/Cargo.lock             @joelee
+/crates/*/Cargo.toml    @joelee
+/Dockerfile             @joelee
+/docs/api/              @joelee

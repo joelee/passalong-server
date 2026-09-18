@@ -1,0 +1,11 @@
+# Enforces the same gates as CI (AGENTS.md § Commands).
+# Install with: pre-commit install
+repos:
+  - repo: local
+    hooks:
+      - id: just-check
+        name: just check (fmt, clippy, tests, coverage, build)
+        entry: just check
+        language: system
+        pass_filenames: false
+        always_run: true

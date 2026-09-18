@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  # Feature branches run CI on every push, before a pull request exists.
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Linux (just ci, includes the image build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          components: rustfmt, clippy, llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov,cargo-deny,just
+      - run: just ci
