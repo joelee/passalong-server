@@ -16,7 +16,8 @@ mod sqlite;
 
 pub use crate::ids::WorkspaceId;
 pub use memory::MemoryLedger;
-pub use sqlite::SqliteLedger;
+pub(crate) use sqlite::open_connection;
+pub use sqlite::{SCHEMA_VERSION, SqliteLedger};
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -359,6 +360,129 @@ mod tests {
         assert_eq!(
             SqliteLedger::open(&path, TIMEOUT).err().unwrap(),
             ApiError::ServiceUnavailable
+        );
+    }
+
+    // ---------- migrations ----------
+
+    const SCHEMA_V1: &str = include_str!("../../tests/fixtures/schema_v1.sql");
+
+    /// A database as PLAN-00002's server left it, holding `record`.
+    fn version_one(path: &std::path::Path, workspace: &WorkspaceId, record: &WorkspaceRecord) {
+        let mut raw = rusqlite::Connection::open(path).unwrap();
+        raw.execute_batch(SCHEMA_V1).unwrap();
+        raw.execute("INSERT INTO schema_version (version) VALUES (1)", [])
+            .unwrap();
+        raw.execute(
+            "INSERT INTO workspaces (id, generation, next_generation) VALUES (?1, 0, 1)",
+            [workspace.as_str()],
+        )
+        .unwrap();
+        let tx = raw.transaction().unwrap();
+        // Version 1 stored a record with the statements that still do.
+        super::sqlite::write_for_tests(&tx, workspace, record);
+        tx.commit().unwrap();
+    }
+
+    fn version_of(path: &std::path::Path) -> i64 {
+        let raw = rusqlite::Connection::open(path).unwrap();
+        raw.query_row("SELECT version FROM schema_version", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_version_one_database_is_migrated_with_every_record_intact() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("control.sqlite");
+        let (a, b) = ids();
+        version_one(&path, &a, &full_record());
+        {
+            let raw = rusqlite::Connection::open(&path).unwrap();
+            raw.execute(
+                "INSERT INTO workspaces (id, generation, next_generation) VALUES (?1, 0, 1)",
+                [b.as_str()],
+            )
+            .unwrap();
+        }
+        assert_eq!(version_of(&path), 1);
+
+        let ledger = SqliteLedger::open(&path, TIMEOUT).unwrap();
+        assert_eq!(version_of(&path), super::sqlite::SCHEMA_VERSION);
+        const { assert!(super::sqlite::SCHEMA_VERSION >= 2) };
+        assert_eq!(ledger.load(&a).unwrap(), full_record());
+        assert_eq!(ledger.load(&b).unwrap(), WorkspaceRecord::default());
+        // A workspace that had no name gets its id as one.
+        let raw = rusqlite::Connection::open(&path).unwrap();
+        let name: String = raw
+            .query_row(
+                "SELECT name FROM workspaces WHERE id = ?1",
+                [a.as_str()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(name, a.as_str());
+        // And it still works as a ledger.
+        ledger
+            .transact(&a, &mut |record| {
+                record.generation = 40;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(ledger.load(&a).unwrap().generation, 40);
+    }
+
+    #[test]
+    fn a_current_database_reopens_unchanged() {
+        let (ledger, dir) = sqlite();
+        let (a, _) = ids();
+        ledger.create(&a).unwrap();
+        ledger
+            .transact(&a, &mut |record| {
+                *record = full_record();
+                Ok(())
+            })
+            .unwrap();
+        drop(ledger);
+        let path = dir.path().join("control.sqlite");
+        let before = std::fs::read(&path).unwrap().len();
+        let ledger = SqliteLedger::open(&path, TIMEOUT).unwrap();
+        assert_eq!(ledger.load(&a).unwrap(), full_record());
+        assert_eq!(version_of(&path), super::sqlite::SCHEMA_VERSION);
+        assert_eq!(std::fs::read(&path).unwrap().len(), before);
+    }
+
+    #[test]
+    fn a_migration_that_fails_leaves_the_database_as_it_was() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("control.sqlite");
+        let (a, _) = ids();
+        version_one(&path, &a, &full_record());
+        let mut raw = rusqlite::Connection::open(&path).unwrap();
+        let broken = [
+            "(version 1, already there)",
+            "ALTER TABLE workspaces ADD COLUMN half_done TEXT; THIS IS NOT SQL;",
+        ];
+        assert_eq!(
+            super::sqlite::migrate_with(&mut raw, &broken).unwrap_err(),
+            ApiError::ServiceUnavailable
+        );
+        assert_eq!(version_of(&path), 1);
+        let columns: i64 = raw
+            .query_row(
+                "SELECT count(*) FROM pragma_table_info('workspaces') WHERE name = 'half_done'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(columns, 0, "the failed step was rolled back");
+        drop(raw);
+        // The real migration then succeeds.
+        assert_eq!(
+            SqliteLedger::open(&path, TIMEOUT)
+                .unwrap()
+                .load(&a)
+                .unwrap(),
+            full_record()
         );
     }
 

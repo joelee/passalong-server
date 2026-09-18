@@ -14,8 +14,13 @@ name = "passalong-server"
 path = "src/main.rs"
 
 [dependencies]
+clap.workspace = true
+serde_json.workspace = true
 passalong-server-core.workspace = true
 passalong-server-api.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

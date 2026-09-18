@@ -25,12 +25,20 @@ homepage = "https://github.com/joelee/passalong-server"
 passalong-server-core = { path = "crates/passalong-server-core", version = "=0.1.0" }
 passalong-server-api = { path = "crates/passalong-server-api", version = "=0.1.0" }
 
+clap = { version = "4.6.7", features = ["derive"] }
+getrandom = "0.4.3"
 # SQLite compiled in, so the image and a systemd host need no system library.
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+sha2 = "0.11.0"
+# Constant-time comparison of key hashes.
+subtle = "2.6.1"
+toml = "1.1.6"
 # Without `attributes`: `#[instrument]` would bring a second version of `syn`.
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+# Only the plain formatter; the field filter on top of it is ours.
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std"] }
 
 # Test-only
 tempfile = "3.27.0"

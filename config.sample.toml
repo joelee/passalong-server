@@ -1,7 +1,8 @@
-# passalong-server configuration. DRAFT: the keys below are the proposal of
-# docs/ideas/00001 and are not read by any code yet.
-# Copy to /etc/passalong-server/config.toml and edit. Every key is
-# documented in docs/configuration.md. No secret goes here.
+# passalong-server configuration. `passalong-server init` writes this file
+# with your data directory filled in; by hand, copy it to
+# /etc/passalong-server/config.toml. Every key is documented in
+# docs/configuration.md, and an unknown key is an error. No secret goes here:
+# the server has none of its own.
 
 [server]
 # error | warning | info | verbose | debug

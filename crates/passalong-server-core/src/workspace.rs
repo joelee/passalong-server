@@ -827,6 +827,15 @@ impl<S: ItemShelf, L: Ledger> Engine<S, L> {
         self.write(|rules| rules.clean_staging())
     }
 
+    /// `passalong-server rewrite abort`; [`Rules::operator_abort_rewrite`].
+    ///
+    /// # Errors
+    ///
+    /// As the rule, and [`ApiError::ServiceUnavailable`].
+    pub fn operator_abort_rewrite(&mut self, force: bool) -> Result<EncryptionView, ApiError> {
+        self.write(|rules| rules.operator_abort_rewrite(force))
+    }
+
     #[cfg(test)]
     pub(crate) fn seed_for_tests(&mut self, id: &ItemId, content: &[u8], under: Option<KeyId>) {
         self.write(|rules| {

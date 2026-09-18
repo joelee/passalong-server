@@ -1,10 +1,24 @@
 //! Randomness, injected so that upload ids are reproducible in tests.
 
-/// A source of random bytes. The server's own, backed by the operating
-/// system, arrives with v0.1.0; the model needs only the seeded one.
+/// A source of random bytes: [`OsRandom`] in the server, [`SeededRandom`]
+/// in tests.
 pub trait RandomSource: Send {
     /// Fills `bytes`.
     fn fill(&mut self, bytes: &mut [u8]);
+}
+
+/// The operating system's source: what the server mints keys and ids from.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OsRandom;
+
+impl RandomSource for OsRandom {
+    /// # Panics
+    ///
+    /// When the operating system has no randomness to give. There is
+    /// nothing safe to do instead: a guessable key is worse than no server.
+    fn fill(&mut self, bytes: &mut [u8]) {
+        getrandom::fill(bytes).expect("the operating system's random source failed");
+    }
 }
 
 /// A reproducible source for tests (SplitMix64). Never use it for anything

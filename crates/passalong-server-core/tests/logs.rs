@@ -129,3 +129,62 @@ fn a_session_with_warnings_and_errors_logs_ids_and_nothing_of_an_item() {
         assert!(!all.contains(secret), "`{secret}` reached the log:\n{all}");
     }
 }
+
+#[test]
+fn a_keys_whole_life_logs_its_id_and_nothing_of_its_secret() {
+    // PLAN-00003, AC-11. The capture keeps every field of every event, so
+    // this shows that no call passes a secret at all, before any allow-list.
+    use passalong_server_core::control::Control;
+    let capture = Capture::default();
+    let dir = tempfile::tempdir().unwrap();
+    let mut secrets = Vec::new();
+
+    tracing::subscriber::with_default(capture.clone(), || {
+        let control = Control::open(
+            dir.path().join("control.sqlite"),
+            Duration::from_millis(100),
+            Arc::new(ManualClock::at(1_000_000)),
+            Box::new(SeededRandom::new(5)),
+        )
+        .unwrap();
+        control.create_workspace("home", None).unwrap();
+        let (key, info) = control
+            .create_key("home", "laptop", Role::ReadWrite, Some(60))
+            .unwrap();
+        let token = key.reveal();
+        control.authenticate(&token).unwrap();
+        control
+            .authenticate(&format!("{}0", &token[..token.len() - 1]))
+            .unwrap_err();
+        control.extend_key(info.id.as_str(), None).unwrap();
+        control.revoke_key(info.id.as_str()).unwrap();
+        control.authenticate(&token).unwrap_err();
+        control.delete_key(info.id.as_str()).unwrap();
+
+        secrets.push(token[17..].to_owned());
+        secrets.push(
+            key.hash()
+                .to_bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect(),
+        );
+        secrets.push(format!("{:?}", key.hash().to_bytes()));
+        secrets.push(info.id.as_str().to_owned());
+    });
+
+    let all = capture.0.lock().unwrap().join("\n");
+    let key_id = secrets.pop().unwrap();
+    assert!(
+        all.contains(&key_id),
+        "the key id is what logs go by:\n{all}"
+    );
+    for secret in &secrets {
+        for start in (0..secret.len().saturating_sub(12)).step_by(4) {
+            assert!(
+                !all.contains(&secret[start..start + 12]),
+                "part of a secret or its hash reached the log:\n{all}"
+            );
+        }
+    }
+}

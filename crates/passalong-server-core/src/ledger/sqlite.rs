@@ -27,61 +27,10 @@ use crate::rewrite::{RewriteKind, Session};
 use crate::upload::{PutOutcome, Ticket, Tombstone, UploadRequest, Uploads};
 use crate::workspace::{Seal, State};
 
-/// The schema this build reads and writes. A database that says more is
-/// from a newer server and is refused.
-const SCHEMA_VERSION: i64 = 1;
-
-const SCHEMA: &str = "
-CREATE TABLE schema_version (version INTEGER NOT NULL);
-CREATE TABLE workspaces (
-    id TEXT PRIMARY KEY,
-    generation INTEGER NOT NULL,
-    plain INTEGER,
-    next_generation INTEGER NOT NULL,
-    -- The seal readers go by; during a rewrite, the one before it.
-    seal_key TEXT,
-    seal_header BLOB,
-    -- The open rewrite session; rw_kind is NULL when there is none.
-    rw_kind TEXT,
-    rw_next_key TEXT,
-    rw_next_header BLOB,
-    rw_holder TEXT,
-    rw_lease_expires_at INTEGER,
-    rw_staged_generation INTEGER
-) STRICT;
-CREATE TABLE generations (
-    workspace TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-    generation INTEGER NOT NULL,
-    used_bytes INTEGER NOT NULL,
-    PRIMARY KEY (workspace, generation)
-) STRICT;
-CREATE TABLE uploads (
-    workspace TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-    upload_id TEXT NOT NULL,
-    owner TEXT NOT NULL,
-    item_id TEXT NOT NULL,
-    meta BLOB NOT NULL,
-    size INTEGER NOT NULL,
-    expected_key TEXT,
-    in_rewrite INTEGER NOT NULL,
-    expires_at INTEGER NOT NULL,
-    PRIMARY KEY (workspace, upload_id)
-) STRICT;
-CREATE TABLE tombstones (
-    workspace TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-    upload_id TEXT NOT NULL,
-    owner TEXT NOT NULL,
-    item_id TEXT NOT NULL,
-    created INTEGER NOT NULL,
-    expires_at INTEGER NOT NULL,
-    PRIMARY KEY (workspace, upload_id)
-) STRICT;
-CREATE TABLE ended_rewrites (
-    workspace TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-    key_id TEXT NOT NULL,
-    PRIMARY KEY (workspace, key_id)
-) STRICT;
-";
+/// The schema this build reads and writes. An older database is migrated
+/// when it is opened; one that says more is from a newer server and is
+/// refused.
+pub const SCHEMA_VERSION: i64 = crate::control::schema::STEPS.len() as i64;
 
 /// A [`Ledger`] in a SQLite file.
 #[derive(Debug)]
@@ -168,29 +117,11 @@ impl SqliteLedger {
     /// it is.
     pub fn open(path: impl AsRef<Path>, busy_timeout: Duration) -> Result<Self, ApiError> {
         let path = path.as_ref().to_path_buf();
-        // SQLite would create the file with the process's umask.
-        std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .open(&path)
-            .map_err(|err| unavailable("create the database file", &err))?;
-        let connection =
-            Connection::open(&path).map_err(|err| unavailable("open the database", &err))?;
-        connection
-            .busy_timeout(busy_timeout)
-            .map_err(|err| unavailable("set the busy timeout", &err))?;
-        use_wal(&connection, busy_timeout)?;
-        connection
-            .execute_batch("PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON;")
-            .map_err(|err| unavailable("configure the database", &err))?;
-        let ledger = Self {
+        let connection = open_connection(&path, busy_timeout)?;
+        Ok(Self {
             connection: Mutex::new(connection),
             path,
-        };
-        ledger.migrate()?;
-        Ok(ledger)
+        })
     }
 
     /// Where the database is.
@@ -203,43 +134,86 @@ impl SqliteLedger {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
     }
+}
 
-    fn migrate(&self) -> Result<(), ApiError> {
-        let mut connection = self.lock();
-        let tx = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|err| unavailable("begin the schema check", &err))?;
-        let has_version: bool = tx
-            .query_row(
-                "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version')",
-                [],
-                |row| row.get(0),
-            )
-            .map_err(|err| unavailable("read the schema", &err))?;
-        if has_version {
-            let version: i64 = tx
-                .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
-                .map_err(|err| unavailable("read the schema version", &err))?;
-            if version != SCHEMA_VERSION {
-                return Err(unavailable(
-                    "check the schema version",
-                    &format!("the database has schema {version}, this server {SCHEMA_VERSION}"),
-                ));
-            }
-        } else {
-            tx.execute_batch(SCHEMA)
-                .and_then(|()| {
-                    tx.execute(
-                        "INSERT INTO schema_version (version) VALUES (?1)",
-                        [SCHEMA_VERSION],
-                    )
-                })
-                .map_err(|err| unavailable("create the schema", &err))?;
-            tracing::info!(target: "passalong_server::ledger", schema = SCHEMA_VERSION, "control database created");
-        }
-        tx.commit()
-            .map_err(|err| unavailable("commit the schema", &err))
+/// A connection to the control database at `path`: created 0600 when new,
+/// in WAL mode, flushed at every commit, and at the current schema version.
+/// The ledger and [`Control`](crate::control::Control) each open one.
+pub(crate) fn open_connection(path: &Path, busy_timeout: Duration) -> Result<Connection, ApiError> {
+    // SQLite would create the file with the process's umask.
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(path)
+        .map_err(|err| unavailable("create the database file", &err))?;
+    let mut connection =
+        Connection::open(path).map_err(|err| unavailable("open the database", &err))?;
+    connection
+        .busy_timeout(busy_timeout)
+        .map_err(|err| unavailable("set the busy timeout", &err))?;
+    use_wal(&connection, busy_timeout)?;
+    connection
+        .execute_batch("PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON;")
+        .map_err(|err| unavailable("configure the database", &err))?;
+    migrate_with(&mut connection, crate::control::schema::STEPS)?;
+    Ok(connection)
+}
+
+/// Brings the database to version `steps.len()`, running the steps it has
+/// not had yet, all in one transaction: either every step takes, or the
+/// database stays exactly as it was.
+pub(crate) fn migrate_with(connection: &mut Connection, steps: &[&str]) -> Result<(), ApiError> {
+    let latest = steps.len() as i64;
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|err| unavailable("begin the schema check", &err))?;
+    let has_version: bool = tx
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|err| unavailable("read the schema", &err))?;
+    let version: i64 = if has_version {
+        tx.query_row("SELECT version FROM schema_version", [], |row| row.get(0))
+            .map_err(|err| unavailable("read the schema version", &err))?
+    } else {
+        0
+    };
+    if version > latest || version < 0 {
+        return Err(unavailable(
+            "check the schema version",
+            &format!("the database has schema {version}, this server {latest}"),
+        ));
     }
+    if version == latest {
+        return Ok(());
+    }
+    for step in &steps[version as usize..] {
+        tx.execute_batch(step)
+            .map_err(|err| unavailable("migrate the schema", &err))?;
+    }
+    let recorded = if has_version {
+        tx.execute("UPDATE schema_version SET version = ?1", [latest])
+    } else {
+        tx.execute("INSERT INTO schema_version (version) VALUES (?1)", [latest])
+    };
+    recorded.map_err(|err| unavailable("record the schema version", &err))?;
+    tx.commit()
+        .map_err(|err| unavailable("commit the migration", &err))?;
+    tracing::info!(target: "passalong_server::ledger", from = version, to = latest, "control database schema brought up to date");
+    Ok(())
+}
+
+#[cfg(test)]
+pub(crate) fn write_for_tests(
+    tx: &Transaction<'_>,
+    workspace: &WorkspaceId,
+    record: &WorkspaceRecord,
+) {
+    write(tx, workspace, record).unwrap();
 }
 
 fn read(tx: &Connection, workspace: &WorkspaceId) -> Result<WorkspaceRecord, ApiError> {

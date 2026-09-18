@@ -313,6 +313,12 @@ impl<S: ItemShelf> Rules<'_, S> {
         if &session.next.key_id != new_key_id {
             return Err(ApiError::KeyIdMismatch);
         }
+        self.end_aborted(session)
+    }
+
+    /// What every abort does: the workspace is again what it was, the staged
+    /// generation is rubbish, and the rewrite's new key id is ended for good.
+    fn end_aborted(&mut self, session: Session) -> Result<EncryptionView, ApiError> {
         self.rec.ended_rewrites.insert(session.next.key_id.clone());
         self.rec.state = State::Settled(session.prior);
         self.rec.used.remove(&session.staged_generation);
@@ -320,6 +326,27 @@ impl<S: ItemShelf> Rules<'_, S> {
             .push(Cleanup::DropGeneration(session.staged_generation));
         self.drop_rewrite_uploads();
         self.encryption()
+    }
+
+    /// `passalong-server rewrite abort`: the operator ends a session from the
+    /// host. It needs no API key and no words, because an abort destroys
+    /// only what was staged. While the lease runs its holder may still be at
+    /// work, so that needs `force`.
+    ///
+    /// # Errors
+    ///
+    /// [`ApiError::NotFound`] without a session; [`ApiError::LeaseHeld`]
+    /// while the lease runs, unless forced.
+    pub fn operator_abort_rewrite(&mut self, force: bool) -> Result<EncryptionView, ApiError> {
+        let State::Rewriting(session) = &self.rec.state else {
+            return Err(ApiError::NotFound);
+        };
+        if !force && session.lease_expires_at > self.clock.now() {
+            return Err(ApiError::LeaseHeld);
+        }
+        let session = session.clone();
+        tracing::warn!(target: "passalong_server::rewrite", holder = %session.holder.as_str(), forced = force, "rewrite session aborted by the operator");
+        self.end_aborted(session)
     }
 }
 
@@ -879,6 +906,71 @@ mod tests {
             ApiError::LeaseHeld
         );
         engine.abort_rewrite(&rw("b"), &key("bb")).unwrap();
+    }
+
+    #[test]
+    fn the_operator_aborts_a_session_nobody_will_recover() {
+        // A laptop died in the middle of a rotation and is not coming back.
+        // Until someone recovers the session, every writer is refused. The
+        // operator can end it from the host: that needs no API key and no
+        // words, since aborting destroys only what was staged.
+        let (mut engine, clock) = engine();
+        assert_eq!(
+            engine.operator_abort_rewrite(false).unwrap_err(),
+            ApiError::NotFound
+        );
+        engine
+            .enable_encryption(&rw("a"), key("aa"), b"h".to_vec())
+            .unwrap();
+        seed(&mut engine, "00000001-aaaaaaaaaaaa", b"sealed-aa");
+        engine.begin_rewrite(&rw("a"), rotate("aa", "bb")).unwrap();
+        stage(
+            &mut engine,
+            "a",
+            "00000001-cccccccccccc",
+            "bb",
+            b"sealed-bb",
+        );
+
+        // Not while its holder may still be at work, unless forced.
+        assert_eq!(
+            engine.operator_abort_rewrite(false).unwrap_err(),
+            ApiError::LeaseHeld
+        );
+        clock.advance(Limits::default().lease_secs + 1);
+        let view = engine.operator_abort_rewrite(false).unwrap();
+        assert_eq!(
+            (view.state, view.key_id.clone()),
+            (EncryptionState::Sealed, Some(key("aa")))
+        );
+        assert_eq!(engine.item_ids(Partition::Current).unwrap().len(), 1);
+        assert_eq!(engine.shelf().generations().unwrap().len(), 1);
+
+        // Writers are welcome again, and the dead client's rewrite is ended
+        // for good, as after any abort.
+        let mut req = request("00000002-dddddddddddd", 1);
+        req.expected_key_id = Some(key("aa"));
+        assert!(matches!(
+            engine.begin_upload(&rw("b"), req).unwrap(),
+            Begun::Ticket(_)
+        ));
+        assert_eq!(
+            engine
+                .begin_rewrite(&rw("a"), rotate("aa", "bb"))
+                .unwrap_err(),
+            ApiError::RewriteEnded
+        );
+        assert_eq!(
+            engine.commit_rewrite(&rw("a"), &key("bb")).unwrap_err(),
+            ApiError::NotFound
+        );
+
+        // Forced, it does not wait for the lease.
+        engine.begin_rewrite(&rw("a"), rotate("aa", "cc")).unwrap();
+        assert_eq!(
+            engine.operator_abort_rewrite(true).unwrap().state,
+            EncryptionState::Sealed
+        );
     }
 
     #[test]

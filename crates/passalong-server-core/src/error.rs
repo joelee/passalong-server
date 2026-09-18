@@ -7,6 +7,13 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ApiError {
+    /// No key, a malformed one, an unknown one, or a wrong secret: which of
+    /// them is not said.
+    Unauthenticated,
+    /// The key's time is up. A client stops retrying and says so.
+    KeyExpired,
+    /// The key was revoked.
+    KeyRevoked,
     /// A read-only key tried to write.
     ForbiddenRole,
     /// The request was made under a data key that is not the workspace's.
@@ -46,6 +53,9 @@ impl ApiError {
     /// The stable error code.
     pub fn code(&self) -> &'static str {
         match self {
+            Self::Unauthenticated => "UNAUTHENTICATED",
+            Self::KeyExpired => "KEY_EXPIRED",
+            Self::KeyRevoked => "KEY_REVOKED",
             Self::ForbiddenRole => "FORBIDDEN_ROLE",
             Self::KeyIdMismatch => "KEY_ID_MISMATCH",
             Self::RewriteInProgress => "REWRITE_IN_PROGRESS",
@@ -65,6 +75,7 @@ impl ApiError {
     /// The HTTP status the code travels with.
     pub fn http_status(&self) -> u16 {
         match self {
+            Self::Unauthenticated | Self::KeyExpired | Self::KeyRevoked => 401,
             Self::ForbiddenRole => 403,
             Self::KeyIdMismatch
             | Self::RewriteInProgress
@@ -91,6 +102,9 @@ impl ApiError {
 impl fmt::Display for ApiError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Unauthenticated => f.write_str("no valid API key"),
+            Self::KeyExpired => f.write_str("this API key has expired"),
+            Self::KeyRevoked => f.write_str("this API key was revoked"),
             Self::ForbiddenRole => f.write_str("this key is read-only"),
             Self::KeyIdMismatch => f.write_str("the workspace's data key is another one"),
             Self::RewriteInProgress => f.write_str("the workspace's encryption is being changed"),
@@ -150,6 +164,9 @@ mod tests {
                 400,
                 false,
             ),
+            (ApiError::Unauthenticated, "UNAUTHENTICATED", 401, false),
+            (ApiError::KeyExpired, "KEY_EXPIRED", 401, false),
+            (ApiError::KeyRevoked, "KEY_REVOKED", 401, false),
             (
                 ApiError::ServiceUnavailable,
                 "SERVICE_UNAVAILABLE",
