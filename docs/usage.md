@@ -1,9 +1,9 @@
 # Usage
 
-`passalong-server` is one binary: the operator's commands today, and the
-daemon with the HTTP slice of v0.1.0. Every command line on this page is run
-by `crates/passalong-server-cli/tests/session.rs`, except those marked as
-belonging to a later slice.
+`passalong-server` is one binary: the server, and the operator's commands.
+Every command line on this page is run by the tests in
+`crates/passalong-server-cli/tests/`, except those marked as belonging to a
+later slice.
 
 ## From an empty host
 
@@ -102,16 +102,103 @@ the data directory's owner, so they need no `--user`:
 docker compose exec server passalong-server key create --workspace home --label laptop
 ```
 
+## TLS
+
+The server speaks TLS itself (`listen.mode = "tls"`, the default) or plain
+HTTP behind a proxy that does (`"plain"`). In `tls` mode it needs a
+certificate and its key, at `tls.cert_file` and `tls.key_file`; `init` sets
+those to `tls/` beside the configuration file. Use a pair from your
+certificate authority, or make one:
+
+```text
+passalong-server tls self-signed --host nas.example --ip 192.0.2.4
+passalong-server tls fingerprint
+```
+
+`--host` and `--ip` are what clients will type, each as often as needed.
+The key is written for its owner alone, and nothing is ever written over a
+pair that is there: clients may have pinned it. Nobody signed this
+certificate, so clients connect by its **pin**, which both commands print:
+`sha256/` and the base64 of the SHA-256 of the certificate's public key
+info. It is the form of the client's `tls_pin` and, with two slashes, of
+`curl --pinnedpubkey`. The pin names the key, not the certificate: a
+renewal that keeps the key keeps the pin.
+
+The pair is read again within half a minute of changing on disk, so
+certbot and its kind need no hook and no restart. A pair that does not load
+is logged, and the one before it stays in use.
+
+There is no switch that turns certificate checking off, on either side.
+
+## Running the server
+
+```text
+passalong-server serve
+passalong-server check --health
+```
+
+`serve` logs what it listens on and serves until SIGTERM or Ctrl-C. Then it
+accepts nothing new, lets the requests in flight finish, for at most half a
+minute, and exits 0. In `tls` mode without its pair it does not start, and
+says which files it looked for. It never falls back to plain HTTP.
+
+Workspaces and keys made, changed, or revoked with the commands above hold
+from the next request on; the server needs no restart and no signal.
+
+Every ten minutes the server removes uploads that were begun and not
+finished within `staging.max_age_hours`.
+
+`check --health` asks the running server's `/readyz` and exits 0 if it is
+ready and 1 if not; it is what the `Dockerfile`'s `HEALTHCHECK` runs. In
+`tls` mode it connects by the pin of the configured certificate. `/healthz`
+answers 204 while the process runs; `/readyz` answers 204 only while the
+control database and the data directory can be used, and 503 otherwise, when
+the server is [failing closed](architecture.md#failing-closed).
+
+## A session with curl
+
+The passalong client is the intended client, from its v0.3.0. Until then,
+and for looking at a server, `curl` will do. This is a real session against
+a server with a self-signed pair; `curl ...` stands for
+
+```text
+curl -sS --cacert tls/cert.pem --pinnedpubkey "sha256//<the pin, after sha256/>" https://localhost:8443
+```
+
+and `$KEY` for the key `key create` printed. An item's id is eight hex
+digits of time, a dash, and the first twelve of its content's SHA-256; a
+plaintext workspace checks the content against `meta` at the commit.
+
+```text
+$ curl ... /healthz -o /dev/null -w "%{http_code}\n"
+204
+$ curl ... /v1/viewer   # no key
+{"code":"UNAUTHENTICATED","retryable":false,"status":401,"title":"no valid API key"}
+$ curl ... -H "Authorization: Bearer $KEY" /v1/viewer
+{"key":{"expiresAt":"2026-12-17T22:40:40Z","id":"a4a8da952b57","label":"laptop","role":"readWrite"},"server":{"apiVersion":1,"maxItemBytes":null,"version":"0.1.0"}}
+$ curl ... -X POST /v1/uploads -d '{"id":"6b49d200-2cf24dba5fb0","meta":{...},"size":"5"}'
+{"uploadId":"3b65ad156dd7f1b0fd7303ce6caee434","expiresAt":"2026-09-19T22:40:57Z"}
+$ curl ... -X PUT --data-binary @hello.txt /v1/uploads/$UPLOAD/content -w "%{http_code}\n"
+204
+$ curl ... -X POST /v1/uploads/$UPLOAD/commit
+{"item":{"id":"6b49d200-2cf24dba5fb0","meta":{"schema":1,"kind":"text","sha256":"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824","size":5},"storedBytes":"5","receivedAt":"2026-09-18T22:40:57Z"},"created":true}
+$ curl ... /v1/items
+[{"id":"6b49d200-2cf24dba5fb0","meta":{"schema":1,"kind":"text","sha256":"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824","size":5},"storedBytes":"5","receivedAt":"2026-09-18T22:40:57Z"}]
+$ curl ... -H "Range: bytes=1-3" /v1/items/$ID/content
+ell
+$ curl ... /v1/workspace
+{"name":"home","quotaBytes":"21474836480","usedBytes":"5","itemCount":1,"encryption":{"state":"plaintext","keyId":null,"header":null,"rewrite":null}}
+$ curl ... --pinnedpubkey sha256//AAAA...= /healthz   # another pin
+curl: (90) SSL: public key does not match pinned public key
+```
+
 ## Not in this build yet
 
 | Command | Arrives with |
 |---|---|
-| `passalong-server serve` | The HTTP slice |
-| `passalong-server tls self-signed \| fingerprint` | The HTTP slice |
-| `passalong-server check --health` | The HTTP slice |
 | `passalong-server service install \| remove` | The Docker and systemd slice |
 
-They exist and say so.
+It exists and says so.
 
 ## Exit codes
 

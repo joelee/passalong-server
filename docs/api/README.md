@@ -4,7 +4,8 @@
 > [IDEA-00001](../ideas/00001-HTTPS_Server_Backend-r04.md), as the protocol
 > spike (PLAN-00001) left it. [`openapi.json`](openapi.json) is the formal
 > document; a test keeps its operations and error codes equal to the tables
-> here. Once the routes exist in code it is exported from them instead.
+> here. The routes exist: a test compares the server's route table with the
+> document, operation for operation, so neither can change alone.
 > [The rewrite session](rewrite-session.md) explains encryption changes,
 > crashes, and replays; the
 > [client mapping](client-encryption-mapping.md) shows what replaces each

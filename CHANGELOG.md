@@ -6,6 +6,19 @@ passalong client's.
 
 ## Unreleased
 
+- The HTTP surface and TLS (PLAN-00004): `passalong-server serve`. Every
+  operation of the contract is a route, behind authentication, limits, and
+  TLS; `tls self-signed`, `tls fingerprint`, `check --health`. Failed
+  authentications are rate-limited per address (`RATE_LIMITED`). The
+  certificate pair is re-read when it changes on disk. `init` now expects
+  the pair in `tls/` beside the configuration file. The control database
+  moves to schema version 3, migrated in place at opening: copy
+  `control.sqlite` first. Found and fixed on the way: `meta` and the
+  encryption header came back re-spelled instead of byte for byte; a slow
+  upload held up every other request of its workspace; leases and
+  `receivedAt` went by the machine's clock and not the injected one; and
+  the commit of an upload staged for a rewrite answered the workspace's
+  item of the same id.
 - API keys and the operations CLI (PLAN-00003): keys that expire, can be
   revoked, and are stored only as hashes; workspaces; the configuration
   file; logging; `passalong-server init`, `workspace`, `key`, `rewrite`,

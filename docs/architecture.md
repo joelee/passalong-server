@@ -77,12 +77,18 @@ flowchart TB
 
 ## Request flow
 
-1. The listener accepts TLS (rustls), or plain HTTP in `mode = "plain"`.
-2. Limits apply before anything is parsed. JSON bodies are capped at a
-   small fixed size; only content streams are large, and those go to disk
-   as they arrive. Failed authentications are rate-limited per client
-   address.
-3. The auth layer reads `Authorization: Bearer pal_<key id>_<secret>` (12
+1. The listener accepts TLS (rustls; 1.2 and 1.3) or plain HTTP in
+   `mode = "plain"`. Each TLS handshake is a task of its own with ten
+   seconds to finish, so a client that says nothing holds up nobody else.
+2. The outermost layer gives the request its correlation id (the
+   `X-Request-Id` the client sent, if it could not hurt a log, or a new
+   one), runs the rest as a task so that a panic becomes a 500 and not a
+   dead connection, and writes the request's one log line: request id, key
+   id, operation, method, status, and duration. Never a header's value.
+3. Failed authentications are counted per client address. An address over
+   the limit is answered `RATE_LIMITED` before its key is looked at. See
+   [configuration](configuration.md#failed-authentications).
+4. The auth layer, before any body is read, reads `Authorization: Bearer pal_<key id>_<secret>` (12
    and 64 lower-case hex digits) and calls `Control::authenticate`, which
    exists: it looks the key id up in the control database, compares the
    secret's SHA-256 in constant time, against a dummy when the id is
@@ -93,9 +99,27 @@ flowchart TB
    Keys are checked against the database on every request, so a revocation
    holds from the next request on. If the database cannot be read, the
    server [fails closed](#failing-closed).
-4. A correlation id is opened for the request (the `X-Request-Id` the client
-   sent, or a new one) and carried by every log line.
-5. The route handler calls `passalong-server-core`.
+5. The route handler reads what the operation takes. JSON bodies are capped
+   at 256 KiB; only content is large, and content is never held whole: it
+   crosses a bounded bridge of at most 8 pieces of 64 KiB between the
+   asynchronous connection and the synchronous core, to disk as it arrives.
+6. The handler calls `passalong-server-core` on the blocking pool, so a slow
+   disk or a busy database stalls no other request. No workspace lock is
+   held while content arrives.
+
+The router is built from one table of operations, `routes.rs`. A test
+compares that table with `docs/api/openapi.json`; another calls every
+operation through it; a third tries every operation with one workspace's key
+against another workspace's ids.
+
+## Stopping, and what runs unasked
+
+On SIGTERM or Ctrl-C the server stops accepting, lets the requests in flight
+finish for at most 30 seconds, and exits 0. Two timers run beside the
+requests: the janitor, every ten minutes, removes every workspace's
+unfinished uploads older than `staging.max_age_hours`; and in `tls` mode the
+certificate files are looked at every 30 seconds and read again when they
+changed.
 
 ## The envelope
 
@@ -389,7 +413,8 @@ See [the API draft](api/README.md) for the routes.
   `docs/service/passalong-server.service`, enables it, and starts it. A test
   keeps that file identical to the rendered template, as in the client.
 - **TLS.** `listen.mode = "tls"` uses rustls with `tls.cert_file` and
-  `tls.key_file`, re-read on change. `mode = "plain"` is refused on a
+  `tls.key_file`, looked at every 30 seconds and re-read on change; a pair
+  that does not load leaves the one before it in use. `mode = "plain"` is refused on a
   non-loopback address unless `listen.behind_proxy = true`. There is no
   switch that weakens verification on either side; a self-signed
   certificate is trusted by the client through `tls_pin`.
@@ -417,17 +442,18 @@ See [the API draft](api/README.md) for the routes.
 - **Administration.** Local only: whoever can run the CLI as the data
   directory's owner. Nothing is managed over the network in v0.1.
 
-## Planned stack
+## Stack
 
-Candidates, to be confirmed by the first plan with `just audit`; none is a
-dependency yet.
+Every crate is checked by `just audit`: advisories, licences, sources, and
+no crate in two versions, without exceptions.
 
-| Need | Candidate |
+| Need | Crate |
 |---|---|
 | Async runtime | `tokio`, as the client |
-| HTTP | `axum` on `hyper` |
-| OpenAPI document | `utoipa`, or a hand-written `openapi.json` checked against the routes by a test |
-| TLS | `rustls` with `ring`, as the client chose for `russh` |
+| HTTP | `axum` on `hyper`, HTTP/1.1 only in v0.1, without default features |
+| OpenAPI document | Hand-written `openapi.json`, compared with the route table by a test |
+| TLS | `rustls` and `tokio-rustls` with `ring`, as the client chose for `russh`; `rcgen` for `tls self-signed` |
 | Control database | `rusqlite`, bundled SQLite, WAL |
-| CLI, config, logs, errors | `clap`, `toml`, `serde`, `tracing`, `thiserror`, `anyhow`, as the client |
-| Item model | `passalong-core` without default features, or a local module (IDEA-00001 INFO-01) |
+| CLI, config, logs | `clap`, `toml`, `serde`, `tracing` |
+| Hashes, comparison, randomness | `sha2`, `subtle`, `getrandom` 0.2 (the version `ring` uses) |
+| Item model | A local module (IDEA-00001 INFO-01): nothing is shared with the client's code |

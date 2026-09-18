@@ -4,10 +4,11 @@ A self-hosted HTTPS server for [passalong](https://github.com/joelee/passalong),
 the clipboard and file sharing tool: an alternative to keeping a passalong
 store on an SSH server or in a local folder.
 
-> **Status: being prepared; it does not listen yet.** The protocol is
-> specified ([API](docs/api/README.md)); storage, API keys, workspaces, and
-> the operator's commands exist and are tested ([usage](docs/usage.md));
-> the HTTP surface comes next. Start with the
+> **Status: it serves; no client speaks to it yet.** `passalong-server
+> serve` answers every operation of the [API](docs/api/README.md) over TLS
+> or behind a proxy, with API keys, workspaces, and the operator's commands
+> ([usage](docs/usage.md)). Packaging for Docker and systemd comes next, and
+> the passalong client learns the protocol in its v0.3.0. Start with the
 > idea report,
 > [IDEA-00001](docs/ideas/00001-HTTPS_Server_Backend-r04.md), and the
 > [architecture draft](docs/architecture.md).

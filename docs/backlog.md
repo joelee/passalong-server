@@ -8,10 +8,15 @@ Future work not covered by an active plan. Completed items are removed.
 - **The next slices of server v0.1.0**, each with its own plan (PLAN-00002
   D-01), now that the storage slice is done (PLAN-00002, completed):
   1. Done: API keys and the operations CLI (PLAN-00003).
-  2. The HTTP surface and TLS: routes exported to `openapi.json`, the
-     authentication layer, limits, the plaintext content check
-     (IDEA-00001-R04-LOW-05), the janitor on a timer, `serve`.
-  3. Docker and systemd: `service install`, the image, `deploy/docker`.
+  2. Done: the HTTP surface and TLS (PLAN-00004). `serve`, every operation
+     of the contract as a route, authentication, limits, rate limiting, the
+     plaintext content check, the janitor, TLS with pins.
+  3. **Next.** Docker and systemd: `service install`, the image,
+     `deploy/docker`. It inherits: `serve` stops on SIGTERM within 30
+     seconds, so a unit's `TimeoutStopSec` and a container's stop timeout
+     must be longer; `check --health` is the health check and needs to read
+     the configuration and, in `tls` mode, the certificate; `init` expects
+     the pair in `tls/` beside the configuration file.
 - **The client's v0.3.0 backend plan**, in the client repository, from
   `docs/api/openapi.json` and `docs/api/client-encryption-mapping.md`, once
   that first slice confirms the contract needs no change.

@@ -30,12 +30,35 @@ or `TiB` (`"20 GiB"`); `"unlimited"` where the table says so.
 | `listen.address` | `0.0.0.0:8443` | Address and port |
 | `listen.mode` | `tls` | `tls`, or `plain` behind a TLS-terminating proxy. `plain` on an address that is not loopback is refused unless `listen.behind_proxy` is true |
 | `listen.behind_proxy` | `false` | Required for `plain` on a non-loopback address; also makes the server trust `X-Forwarded-For` for rate limiting |
-| `tls.cert_file`, `tls.key_file` | none | PEM files, re-read when they change |
+| `tls.cert_file`, `tls.key_file` | none; `init` writes `tls/cert.pem` and `tls/key.pem` beside the configuration file | PEM files, looked at every 30 seconds and re-read when they changed. `serve` in `tls` mode does not start without them; [`tls self-signed`](usage.md#tls) makes a pair |
 | `limits.max_item_bytes` | `"unlimited"` | Largest item; see [below](#the-item-size-limit). Clients read the value before they upload |
 | `limits.workspace_quota_bytes` | `20 GiB` | Quota of a new workspace. While a rewrite is open its next generation has an allowance of the same size, so plan disk for twice the quota of a workspace that is being re-encrypted |
-| `limits.auth_failures_per_minute` | `10` | Per client address, then `RATE_LIMITED` |
+| `limits.auth_failures_per_minute` | `10` | Per client address, then `RATE_LIMITED`; `0` turns it off. See [below](#failed-authentications) |
 | `rewrite.lease_secs` | `600` | How long a rewrite session stays its holder's without a heartbeat, before another device may take it over. The client today waits the same ten minutes before it offers to take over a recovery |
 | `staging.max_age_hours` | `24` | Age at which the janitor removes unfinished uploads. Also the least time a committed upload's outcome is kept, so that a repeated `commitUpload` gets the same answer |
+
+## Failed authentications
+
+A request with no key, or with one that is not a key of this server, is a
+guess, and guesses are counted per client address over a sliding minute.
+At `limits.auth_failures_per_minute` the address is answered
+`RATE_LIMITED` (429) with a `Retry-After`, whatever it sends, a right key
+included, until its oldest guess is a minute old. Requests that succeed are
+never counted. Nor is an expired or revoked key: that was the right secret,
+and a forgotten device that keeps sending one must not shut out everyone
+behind the same router. `/healthz` and `/readyz` are not limited.
+
+The address is the connection's. With `listen.behind_proxy = true` it is
+the **last** entry of `X-Forwarded-For`, the one your proxy appended;
+entries before it came from the client and are ignored, so a forged header
+moves nothing. This is right for exactly one proxy in front of the server.
+Behind two, every client appears as the outer proxy's address and shares
+one count; raise the limit or turn it off, and limit at the outer proxy.
+If the proxy sends no such header, all clients count as the proxy.
+
+An IPv6 client is counted as its /64. The server remembers at most 10,000
+addresses; when there are more, the one that failed longest ago is
+forgotten first.
 
 ## The item-size limit
 
