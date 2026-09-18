@@ -61,7 +61,7 @@ server's protocol. r03's success threshold is met.
 |---|---|---|---|
 | `migrate` | Publishes the journal (the lock), moves `items/` into `.rewrite/source/`, writes the stop file, runs the engine | `beginRewrite(kind: migrate)`, then the engine against the session, then `commitRewrite` | None |
 | `rotate` | The same from `v2/items/`, keeping the old header in the journal | `beginRewrite(kind: rotate)`, engine, `commitRewrite`. The old header needs no keeping: until the commit it is simply the workspace's header | None |
-| `run` (private; the engine) | Source store and target store over the same filesystem; `id_for`, `exists`, `import`, then `verify` each, `install`, `cleanup` | Source: the workspace, read under the old key. Target: uploads with `inRewrite`. `exists` becomes "is the id in `getRewrite`'s `stagedIds`", or simply `beginUpload`'s `created: false`. `verify` reads the staged item back... see "One gap" below | None |
+| `run` (private; the engine) | Source store and target store over the same filesystem; `id_for`, `exists`, `import`, then `verify` each, `install`, `cleanup` | Source: the workspace, read under the old key. Target: uploads with `inRewrite`. `exists` becomes "is the id in `getRewrite`'s `stagedIds`", or simply `beginUpload`'s `created: false`. `verify` reads the staged item back with `partition=staged`; see "The gap this mapping found" | None |
 | `finish` | Claims the recovery marker, reads the journal, resumes the engine or the header change | `takeOverRewrite` if another key holds it, then the engine, which skips what is staged, then `commitRewrite` | None |
 | `undo` | Claims the recovery marker, puts the source back, restores the header, releases the lock | `takeOverRewrite` if needed, then `abortRewrite` | None |
 | `read_plan` | Reads `.rewrite/plan.json` | `getRewrite`: kind, holder, lease, new key id, staged ids, source count | None |
@@ -106,21 +106,18 @@ file, the leftovers, the guards of `open.rs`, and `fold`. Over HTTPS the
 server is the transaction, so none of it has a counterpart. It all stays in
 the client, unchanged, for the `ssh` and `local` backends.
 
-## One gap, found by this mapping
+## The gap this mapping found
 
 The client's engine **verifies** every re-encrypted item by reading it back
 from the target store and comparing SHA-256 and size (`verify` in
 `rewrite.rs`). A staged item is in the next generation, which no read route
-reaches: `getItemContent` reads `current` or `plain`.
+reached when this mapping was written.
 
-Options: (a) `partition=staged`, readable by the session's holder only;
-(b) verify before upload, since the client sealed the bytes itself and the
-server checks the size, and rely on TLS and the server's write path;
-(c) both. The client's check exists to catch a storage that acknowledged a
-write and lost or damaged it, which is exactly what (b) gives up. **(a) is
-recommended**, and is a small addition: one more value of `partition`, with
-`LEASE_HELD` for anyone but the holder. It is recorded for the user's
-decision and is not in `openapi.json` yet.
+Closed on 2026-09-18 by the user's decision: the four read routes take
+`partition=staged`, for the session's holder alone (`LEASE_HELD` for anyone
+else, `NOT_FOUND` without a session). Verifying only before the upload
+would have given up exactly what the check is for: a store that
+acknowledged a write and lost or damaged it.
 
 ## The sketch
 
@@ -179,7 +176,7 @@ pub trait Rewrite: Send + Sync {
     /// is there already. Over HTTPS: an upload with `inRewrite`.
     async fn import(&self, meta: &ItemMeta, content: BoxRead) -> Result<ItemMeta, StoreError>;
 
-    /// Reads a new item back, for `verify`. See "One gap".
+    /// Reads a new item back, for `verify`. Over HTTPS: `partition=staged`.
     async fn read_back(&self, meta: &ItemMeta) -> Result<(ItemMeta, BoxRead), StoreError>;
 
     /// Keeps the lock; a no-op on a filesystem.

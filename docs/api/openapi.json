@@ -387,11 +387,12 @@
               "type": "string",
               "enum": [
                 "current",
-                "plain"
+                "plain",
+                "staged"
               ],
               "default": "current"
             },
-            "description": "`plain`: the plaintext items a fresh start set aside."
+            "description": "`plain`: the plaintext items a fresh start set aside. `staged`: the open rewrite's next generation, for the session's holder alone, who reads every re-encrypted item back before it commits; NOT_FOUND without a session, LEASE_HELD for anyone else."
           }
         ],
         "responses": {
@@ -423,6 +424,8 @@
           "INVALID_REQUEST",
           "KEY_EXPIRED",
           "KEY_REVOKED",
+          "LEASE_HELD",
+          "NOT_FOUND",
           "RATE_LIMITED",
           "SERVICE_UNAVAILABLE",
           "UNAUTHENTICATED"
@@ -449,11 +452,12 @@
               "type": "string",
               "enum": [
                 "current",
-                "plain"
+                "plain",
+                "staged"
               ],
               "default": "current"
             },
-            "description": "`plain`: the plaintext items a fresh start set aside."
+            "description": "`plain`: the plaintext items a fresh start set aside. `staged`: the open rewrite's next generation, for the session's holder alone, who reads every re-encrypted item back before it commits; NOT_FOUND without a session, LEASE_HELD for anyone else."
           }
         ],
         "responses": {
@@ -485,6 +489,8 @@
           "INVALID_REQUEST",
           "KEY_EXPIRED",
           "KEY_REVOKED",
+          "LEASE_HELD",
+          "NOT_FOUND",
           "RATE_LIMITED",
           "SERVICE_UNAVAILABLE",
           "UNAUTHENTICATED"
@@ -607,11 +613,12 @@
               "type": "string",
               "enum": [
                 "current",
-                "plain"
+                "plain",
+                "staged"
               ],
               "default": "current"
             },
-            "description": "`plain`: the plaintext items a fresh start set aside."
+            "description": "`plain`: the plaintext items a fresh start set aside. `staged`: the open rewrite's next generation, for the session's holder alone, who reads every re-encrypted item back before it commits; NOT_FOUND without a session, LEASE_HELD for anyone else."
           }
         ],
         "responses": {
@@ -641,6 +648,7 @@
           "INVALID_REQUEST",
           "KEY_EXPIRED",
           "KEY_REVOKED",
+          "LEASE_HELD",
           "NOT_FOUND",
           "RATE_LIMITED",
           "SERVICE_UNAVAILABLE",
@@ -739,11 +747,12 @@
               "type": "string",
               "enum": [
                 "current",
-                "plain"
+                "plain",
+                "staged"
               ],
               "default": "current"
             },
-            "description": "`plain`: the plaintext items a fresh start set aside."
+            "description": "`plain`: the plaintext items a fresh start set aside. `staged`: the open rewrite's next generation, for the session's holder alone, who reads every re-encrypted item back before it commits; NOT_FOUND without a session, LEASE_HELD for anyone else."
           },
           {
             "name": "Range",
@@ -782,6 +791,7 @@
           "INVALID_REQUEST",
           "KEY_EXPIRED",
           "KEY_REVOKED",
+          "LEASE_HELD",
           "NOT_FOUND",
           "RATE_LIMITED",
           "SERVICE_UNAVAILABLE",

@@ -28,10 +28,14 @@ A workspace's items live in a numbered **generation**. A rewrite stages the
    The new id follows from the item's creation time and its content under
    the new key, so an item already staged is answered with
    `created: false` and a resumed run repeats nothing.
-3. `commitRewrite` switches generation, header, and key id in one control
+3. The holder reads every staged item back, with `partition=staged`, and
+   compares its SHA-256 and size, as the client's rewrite engine does today.
+   Nobody else reads there: the generation may yet be dropped, and nobody
+   else could open what is in it.
+4. `commitRewrite` switches generation, header, and key id in one control
    database transaction. It is refused with `REWRITE_INCOMPLETE` unless the
    next generation holds as many items as the current one.
-4. The old generation is rubbish from then on. Removing it may be cut
+5. The old generation is rubbish from then on. Removing it may be cut
    short; the janitor removes any generation nothing points to.
 
 `abortRewrite` drops the next generation instead, and the workspace is what
@@ -151,8 +155,9 @@ under a new key.
 
 - That a staged item is the re-encryption of a source item. It compares
   counts, as it must: the ids differ, and it cannot open either. The client
-  reads every new item back and compares SHA-256 and size before it
-  commits, as it does today.
+  can, and does: it reads every new item back with `partition=staged` and
+  compares SHA-256 and size before it commits. The model test's resume path
+  does the same.
 - That the new header wraps the key the items are sealed under. A client
   that commits the wrong header locks its own workspace; the old generation
   is gone by then. The client should unwrap the header it is about to send

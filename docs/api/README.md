@@ -1,7 +1,7 @@
 # API (draft)
 
 > **Draft for discussion**, from
-> [IDEA-00001](../ideas/00001-HTTPS_Server_Backend-r03.md), as the protocol
+> [IDEA-00001](../ideas/00001-HTTPS_Server_Backend-r04.md), as the protocol
 > spike (PLAN-00001) left it. [`openapi.json`](openapi.json) is the formal
 > document; a test keeps its operations and error codes equal to the tables
 > here. Once the routes exist in code it is exported from them instead.
@@ -58,8 +58,12 @@ use.
 
 ### Items
 
-`partition` is `current` (the default) or `plain`, the items kept from
-before a fresh start.
+`partition` is `current` (the default); `plain`, the items kept from before
+a fresh start; or, on the four read routes only, `staged`: the open
+rewrite's next generation, which its holder alone may read, to verify every
+re-encrypted item before it commits. Without a session `staged` answers
+`NOT_FOUND`, and for anyone but the holder `LEASE_HELD`. `deleteItem` takes
+`current` and `plain`.
 
 | Operation | Route | Notes |
 |---|---|---|

@@ -2,8 +2,8 @@
 //! and `encrypt --rotate`.
 
 use crate::error::ApiError;
-use crate::ids::{ApiKeyId, KeyId};
-use crate::shelf::ItemShelf;
+use crate::ids::{ApiKeyId, ItemId, KeyId};
+use crate::shelf::{ItemShelf, StoredItem};
 use crate::workspace::{Caller, EncryptionView, Engine, Seal, SessionView, State};
 
 /// What a rewrite does.
@@ -73,6 +73,35 @@ impl<S: ItemShelf> Engine<S> {
             return Err(ApiError::KeyIdMismatch);
         }
         Ok(session.staged_generation)
+    }
+
+    /// `listItemIds` with `partition=staged`: the open rewrite's next
+    /// generation, newest first, for its holder alone.
+    ///
+    /// # Errors
+    ///
+    /// [`ApiError::NotFound`] without a session, [`ApiError::LeaseHeld`] for
+    /// anyone but the holder.
+    pub fn staged_item_ids(&self, caller: &Caller) -> Result<Vec<ItemId>, ApiError> {
+        let session = self.held_session(caller)?;
+        Ok(self.shelf.ids(session.staged_generation))
+    }
+
+    /// `getItem` and `getItemContent` with `partition=staged`. The client
+    /// reads every re-encrypted item back and compares its SHA-256 and size
+    /// before it commits, which catches a store that acknowledged a write
+    /// and lost or damaged it. Only the holder reads here: the generation
+    /// may yet be dropped, and nobody else can open what is in it.
+    ///
+    /// # Errors
+    ///
+    /// As [`Engine::staged_item_ids`], and [`ApiError::NotFound`] for an id
+    /// that is not staged.
+    pub fn staged_item(&self, caller: &Caller, id: &ItemId) -> Result<StoredItem, ApiError> {
+        let session = self.held_session(caller)?;
+        self.shelf
+            .get(session.staged_generation, id)
+            .ok_or(ApiError::NotFound)
     }
 
     /// `getRewrite`.
@@ -505,6 +534,63 @@ mod tests {
         assert_eq!(
             engine.begin_upload(&rw("a"), more).unwrap_err(),
             ApiError::QuotaExceeded
+        );
+    }
+
+    #[test]
+    fn only_the_holder_reads_staged_items_back() {
+        // The client verifies every re-encrypted item before it commits, by
+        // reading it back and comparing SHA-256 and size. Nobody else has
+        // any business in a generation that may yet be dropped.
+        let (mut engine, clock) = engine();
+        assert_eq!(
+            engine.staged_item_ids(&rw("a")).unwrap_err(),
+            ApiError::NotFound
+        );
+        seed(&mut engine, "00000001-aaaaaaaaaaaa", b"plain");
+        engine.begin_rewrite(&rw("a"), migrate("bb")).unwrap();
+        let staged = stage(&mut engine, "a", "00000001-cccccccccccc", "bb", b"sealed").id;
+
+        assert_eq!(
+            engine.staged_item_ids(&rw("a")).unwrap(),
+            vec![staged.clone()]
+        );
+        let item = engine.staged_item(&rw("a"), &staged).unwrap();
+        assert_eq!(item.content, b"sealed");
+        assert_eq!(item.envelope.under, Some(key("bb")));
+        // Staged items are not the workspace's items yet.
+        assert!(engine.item(Partition::Current, &staged).is_none());
+
+        let source = ItemId::parse("00000001-aaaaaaaaaaaa").unwrap();
+        assert_eq!(
+            engine.staged_item(&rw("a"), &source).unwrap_err(),
+            ApiError::NotFound
+        );
+        assert_eq!(
+            engine.staged_item(&rw("b"), &staged).unwrap_err(),
+            ApiError::LeaseHeld
+        );
+        assert_eq!(
+            engine.staged_item_ids(&ro("k")).unwrap_err(),
+            ApiError::LeaseHeld
+        );
+
+        // After a take-over the new holder reads, and the former one does not.
+        clock.advance(Limits::default().lease_secs + 1);
+        engine.take_over_rewrite(&rw("b")).unwrap();
+        assert_eq!(
+            engine.staged_item(&rw("b"), &staged).unwrap().content,
+            b"sealed"
+        );
+        assert_eq!(
+            engine.staged_item(&rw("a"), &staged).unwrap_err(),
+            ApiError::LeaseHeld
+        );
+
+        engine.abort_rewrite(&rw("b"), &key("bb")).unwrap();
+        assert_eq!(
+            engine.staged_item(&rw("b"), &staged).unwrap_err(),
+            ApiError::NotFound
         );
     }
 

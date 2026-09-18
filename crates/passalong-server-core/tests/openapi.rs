@@ -192,3 +192,39 @@ fn no_response_carries_a_field_taken_from_meta() {
         assert!(!text.contains(forbidden), "openapi.json names {forbidden}");
     }
 }
+
+#[test]
+fn staged_items_can_be_read_back_and_not_deleted() {
+    let document = document();
+    let partitions = |path: &str, method: &str| -> Vec<String> {
+        document["paths"][path][method]["parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|parameter| parameter["name"] == "partition")
+            .unwrap_or_else(|| panic!("{method} {path} has no partition"))["schema"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap().to_owned())
+            .collect()
+    };
+    for path in [
+        "/v1/items",
+        "/v1/item-ids",
+        "/v1/items/{id}",
+        "/v1/items/{id}/content",
+    ] {
+        assert_eq!(
+            partitions(path, "get"),
+            ["current", "plain", "staged"],
+            "{path}"
+        );
+        let errors = document["paths"][path]["get"]["x-passalong-errors"].to_string();
+        assert!(
+            errors.contains("LEASE_HELD"),
+            "{path} cannot refuse a non-holder"
+        );
+    }
+    assert_eq!(partitions("/v1/items/{id}", "delete"), ["current", "plain"]);
+}

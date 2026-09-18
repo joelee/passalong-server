@@ -351,6 +351,20 @@ fn stage_missing<S: ItemShelf>(
         }
         staged += 1;
     }
+    // The client's `verify`: every new item is read back before the commit,
+    // those staged by an earlier run included.
+    let sources = engine.item_ids(Partition::Current);
+    for source in &sources {
+        let text = open(&engine.item(Partition::Current, source).unwrap()).1;
+        let id = id_for(ts_of(source), Some(new), &text);
+        let item = engine.staged_item(&caller(who), &id)?;
+        assert_eq!(
+            item.content,
+            seal(Some(new), &text),
+            "verify: {id} is not the re-encryption of {source}"
+        );
+    }
+    assert_eq!(engine.staged_item_ids(&caller(who))?.len(), sources.len());
     Ok(staged)
 }
 
