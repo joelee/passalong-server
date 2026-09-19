@@ -14,6 +14,7 @@ setup:
     rustup component add llvm-tools-preview
     command -v cargo-llvm-cov >/dev/null || cargo install --locked cargo-llvm-cov
     command -v cargo-deny >/dev/null || cargo install --locked cargo-deny
+    command -v cargo-about >/dev/null || cargo install --locked cargo-about --features cli
     command -v actionlint >/dev/null || ! command -v go >/dev/null || GOBIN="$HOME/.local/bin" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 
 # Format all code in place
@@ -56,7 +57,7 @@ links:
 check: fmt-check lint links test coverage build
 
 # Full CI pipeline: all checks, then the audit, workflows, and the image
-ci: check audit lint-workflows docker-build test-deploy test-service
+ci: check audit notices-check lint-workflows docker-build test-deploy test-service
 
 # Build the container image
 docker-build:
@@ -69,6 +70,23 @@ test-deploy:
 # `service install` and `service remove` on a real systemd, in a throwaway container
 test-service:
     scripts/test-service.sh
+
+# Write THIRD-PARTY-NOTICES: the licences of every crate the binary links.
+# Offline: a crate's licence is read from its own files, never asked of a
+# service, so the file is the same on every machine.
+notices:
+    cargo about generate --frozen --fail -o THIRD-PARTY-NOTICES about.hbs
+
+# Fail when THIRD-PARTY-NOTICES is not what `just notices` would write
+notices-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    fresh="$(mktemp)"; trap 'rm -f "$fresh"' EXIT
+    cargo about generate --frozen --fail -o "$fresh" about.hbs
+    if ! cmp -s "$fresh" THIRD-PARTY-NOTICES; then
+        echo "error: THIRD-PARTY-NOTICES is stale or missing; run \`just notices\` and commit it" >&2
+        exit 1
+    fi
 
 # Run the CLI, e.g. `just run key list`
 run *ARGS:

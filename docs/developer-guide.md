@@ -6,13 +6,20 @@
 client. Then:
 
 ```text
-just setup     # cargo-llvm-cov, cargo-deny, actionlint
+just setup     # cargo-llvm-cov, cargo-deny, cargo-about, actionlint
 pre-commit install
 just check     # format, lint, links, tests, coverage, build
 ```
 
-`just ci` adds the dependency audit, the workflow lint, and the image build.
-Nothing is ever pushed: the image stays local.
+`just ci` adds the dependency audit, the check that `THIRD-PARTY-NOTICES` is
+current, the workflow lint, the image build, and both installations end to
+end (`test-deploy`, `test-service`; they need Docker 28 or later). Run it,
+not only `just check`, before calling anything done. Nothing it does is
+pushed anywhere: only a release tag publishes.
+
+After changing a dependency, `just notices` rewrites `THIRD-PARTY-NOTICES`;
+commit it with `Cargo.lock`. The licences accepted in `about.toml` and in
+`deny.toml` are one list in two files: change both or neither.
 
 ## The tests that matter most
 

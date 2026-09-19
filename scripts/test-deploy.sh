@@ -36,6 +36,14 @@ trap cleanup EXIT
 say "build"
 compose build --quiet
 
+say "the image carries its terms and its dependencies' notices"
+for file in LICENSE THIRD-PARTY-NOTICES; do
+    compose run --rm -T --entrypoint sh server -c "test -s /usr/share/doc/passalong-server/$file" \
+        || fail "the image has no $file"
+done
+compose run --rm -T --entrypoint sh server -c 'head -1 /usr/share/doc/passalong-server/LICENSE' \
+    | grep -q "GNU AFFERO GENERAL PUBLIC LICENSE" || fail "the image's LICENSE is not the AGPL"
+
 say "init, and a self-signed pair, before the server has ever run"
 compose run --rm -T server init --data-dir /var/lib/passalong-server
 compose run --rm -T server tls self-signed --host localhost --ip 127.0.0.1 >/dev/null

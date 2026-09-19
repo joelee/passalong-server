@@ -1,0 +1,28 @@
+THIRD-PARTY NOTICES
+
+passalong-server is free software under the GNU Affero General Public
+License, version 3 or later; see LICENSE. Its binary links the third-party
+Rust crates listed below, each under the licence named, whose text follows.
+This file is generated from Cargo.lock by `just notices`; do not edit it.
+
+Source: https://github.com/joelee/passalong-server
+
+================================================================================
+Overview
+================================================================================
+{{#each overview}}
+{{{name}}} ({{id}}): {{count}}
+{{/each}}
+{{#each licenses}}
+
+================================================================================
+{{{name}}} ({{id}})
+================================================================================
+
+Used by:
+{{#each used_by}}
+  {{{crate.name}}} {{crate.version}}{{#if crate.repository}}  {{{crate.repository}}}{{/if}}
+{{/each}}
+
+{{{text}}}
+{{/each}}

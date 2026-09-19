@@ -6,6 +6,9 @@ passalong client's.
 
 ## Unreleased
 
+- `THIRD-PARTY-NOTICES`: the licence of every crate the binary links, made
+  by `just notices` from `Cargo.lock`, kept current by `just ci`, and carried
+  by the image beside `LICENSE`.
 - **The licence is the GNU Affero General Public License, version 3 or
   later** (`AGPL-3.0-or-later`), in place of the proprietary notice under
   which nothing could be distributed (PLAN-00006). Dependencies stay

@@ -16,7 +16,7 @@ RUN useradd --system --uid 10001 --home-dir /var/lib/passalong-server --create-h
     && chown passalong-server: /etc/passalong-server /var/lib/passalong-server
 COPY --from=builder /src/target/release/passalong-server /usr/local/bin/passalong-server
 # The terms travel with the binary: AGPL-3.0-or-later.
-COPY LICENSE /usr/share/doc/passalong-server/LICENSE
+COPY LICENSE THIRD-PARTY-NOTICES /usr/share/doc/passalong-server/
 # Where `init` writes and every command looks: the configuration volume. A
 # fresh named volume takes this directory's owner, which is the server's user.
 ENV PASSALONG_SERVER_CONFIG_FILE=/etc/passalong-server/config.toml
