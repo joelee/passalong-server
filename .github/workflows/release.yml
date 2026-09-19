@@ -94,7 +94,7 @@ jobs:
           VERSION: ${{ needs.check.outputs.version }}
           ARCH: ${{ matrix.arch }}
         run: scripts/release-archive.sh archive "$VERSION" "$ARCH" target/release/passalong-server dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: archive-${{ matrix.arch }}
           path: dist/*.tar.gz
@@ -122,7 +122,7 @@ jobs:
         run: |
           mkdir -p digests
           touch "digests/${DIGEST#sha256:}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: needs.check.outputs.publish == 'true'
         with:
           name: digest-${{ matrix.arch }}
@@ -142,7 +142,7 @@ jobs:
           merge-multiple: true
       - run: scripts/release-archive.sh sums dist
       - run: scripts/release-archive.sh verify dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-files
           path: dist/*
