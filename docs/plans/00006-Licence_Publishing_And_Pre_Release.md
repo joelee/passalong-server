@@ -33,13 +33,13 @@ confidence: medium
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; the planner initializes them.
-implementation_status: not-started
-builder_agent: null
-builder_model: null
-execution_branch: null
-execution_started_at: null
-execution_updated_at: null
-execution_completed_at: null
+implementation_status: completed
+builder_agent: Claude Code
+builder_model: "anthropic/claude-fable-5-1"
+execution_branch: "feature/pre-release"
+execution_started_at: "2026-09-19T11:40:00Z"
+execution_updated_at: "2026-09-19T12:05:36Z"
+execution_completed_at: "2026-09-19T12:05:36Z"
 current_step: null
 ---
 
@@ -463,14 +463,14 @@ that publishes nothing, and by saying at hand-off what is unproven.
 
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
-| PLAN-00006-STEP-01 | not-started | — | — | — | — |
-| PLAN-00006-STEP-02 | not-started | — | — | — | — |
-| PLAN-00006-STEP-03 | not-started | — | — | — | — |
-| PLAN-00006-STEP-04 | not-started | — | — | — | — |
-| PLAN-00006-STEP-05 | not-started | — | — | — | — |
-| PLAN-00006-STEP-06 | not-started | — | — | — | — |
-| PLAN-00006-STEP-07 | not-started | — | — | — | — |
-| PLAN-00006-STEP-08 | not-started | — | — | — | — |
+| PLAN-00006-STEP-01 | completed | 2026-09-19 | 2026-09-19 | `09d7329`; links ok | Four entries were done long since and still listed |
+| PLAN-00006-STEP-02 | completed | 2026-09-19 | 2026-09-19 | `6b4633e`, which touches nothing but the terms; `tests/repository.rs`, 3 tests, seen to fail first; `just ci` exit 0 | The text is SPDX's, pinned by SHA-256 in the test and compared with the system's copy where there is one. SPDX's copy is unwrapped, one paragraph a line: the same words as gnu.org's file, not the same bytes. The README carries the FSF's notice. Sentences that said "nothing is published" were reworded here and made true in step 7 |
+| PLAN-00006-STEP-03 | completed | 2026-09-19 | 2026-09-19 | `82d2d3f`; `just notices-check` seen to fail without the file and with a stale one; all 131 crates of `cargo tree -e normal` found in it | `cargo-about` 0.9.2, installed with `--features cli`, run `--frozen`: a crate's licence comes from its own files and never from a service, so the file is the same everywhere. `about.toml` and `deny.toml` hold the same list; the developer guide says change both or neither. Handlebars escapes HTML, which a text file must not: the template uses triple braces |
+| PLAN-00006-STEP-04 | completed | 2026-09-19 | 2026-09-19 | `73ed7e8` and, alone, the contract change `144fe91`; CLI test and API test seen to fail first | The footer is put under every command by walking clap's tree, since clap has no way to inherit it. `SOURCE_URL` is `repository` of `Cargo.toml` in both crates: one line to change in a fork. **The contract changed once, as D-04 allows**: `server.sourceUrl`, additive, described as not to be required |
+| PLAN-00006-STEP-05 | completed | 2026-09-19 | 2026-09-19 | `3ee2e2a`; 5 unit tests, of which one runs the printed hook with `sh` in a temporary directory; the session test; `scripts/test-deploy.sh` runs the `--docker` hook against the compose project | The hook acts only on its own certificate's lineage, refuses half a renewal and keeps the pair in use, and quotes every path. It is also run by hand once, because certbot runs the hooks of that directory at renewals and not at the first issuance: that is from the planner's knowledge of certbot, unverified here, and running it by hand is right either way. Addresses and single-label names are refused with a pointer to `tls self-signed`. In `plain` mode the command says the certificate is the proxy's |
+| PLAN-00006-STEP-06 | completed | 2026-09-19 | 2026-09-19 | `4db115e`; the session test | Test and command were written together; the test was not seen to fail first |
+| PLAN-00006-STEP-07 | completed | 2026-09-19 | 2026-09-19 | `9e21b81`; `just lint-workflows` clean; `just test-release-archive` in `just ci` | **The archive test found a defect at its first run**: `target/release` held a binary from days before, and the archive would have shipped it. The recipe and the workflow build the release binary themselves, without features, so without fault injection. Archives are reproducible: same input, same bytes, which the recipe checks. Native runners per architecture as D-06; the fallback was not needed to write it, and whether it is needed to run it is not known. Only the publish job has `contents: write` |
+| PLAN-00006-STEP-08 | completed | 2026-09-19 | 2026-09-19 | `just ci` exit 0: line coverage 96.34 %; `scripts/check-release-tag.sh v0.1.0` fails on exactly two things, the `Unreleased` heading and the draft mark | `docs/release/v0.1.0.md`, `docs/release/first-publication.md`, `AGENTS.md` release steps 7 and 8, `deploy/docker/README.md`, `docs/usage.md`, `docs/architecture.md`. The draft mark had to read `Draft ` and not `Draft.` for the check to see it |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 `skipped`. A skipped step requires explicit user approval recorded in Evidence.
@@ -479,26 +479,42 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 
 | Timestamp (UTC) | Step | Event | Evidence or reference | Next action |
 |---|---|---|---|---|
+| 2026-09-19T12:05:36Z | STEP-01 to STEP-08 | Built in the order 1, 2, 3, 4, 6, 5, 7, 8, each step a commit of its own because the plan wants the licence and the contract change alone in theirs | `git log d0970d5..` | Hand-off |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
-
-None.
+| 2026-09-19T12:05:36Z | STEP-07 | **Neither workflow has run.** There is no remote. They are linted, and what they call has run here; the expressions, the runner labels, the action versions, the digest hand-over between jobs, and the secrets are unproven | AC-09, AC-10, AC-11 are met as far as this machine can show. `docs/release/first-publication.md` has the dry run that proves them | The user: the steps of that document |
+| 2026-09-19T12:05:36Z | STEP-06 | `audit` was not written test-first | None found | Nobody |
+| 2026-09-19T12:05:36Z | STEP-02 | `cargo-about` was installed on the Builder's machine (`~/.cargo/bin`), as the plan said; `just setup` installs it for others | None | Nobody |
 
 ### Verification results
 
 | Timestamp (UTC) | Step | Command or check | Result | Evidence |
 |---|---|---|---|---|
+| 2026-09-19T12:05:36Z | STEP-08 | `just ci` | Exit 0 | Line coverage 96.34 %, region 94.00 %; now with `notices-check` and `test-release-archive` |
+| 2026-09-19T12:05:36Z | STEP-08 | `just audit` | Exit 0 | `skip = []`; `Cargo.lock` unchanged by this plan |
+| 2026-09-19T12:05:36Z | STEP-08 | `grep -ri proprietary` outside `CHANGELOG.md`, `docs/ideas/`, `docs/plans/` | Only `tests/repository.rs`, which looks for the word | — |
+| 2026-09-19T12:05:36Z | STEP-08 | `scripts/check-release-tag.sh v0.1.0` | Exit 1, for the two reasons finalising removes | Its output |
 
 ### Completion summary
 
-- **Implementation status:** `not-started`
-- **Completed requirements:** None
-- **Incomplete requirements:** All
+- **Implementation status:** `completed`
+- **Completed requirements:** REQ-01 to REQ-10
+- **Incomplete requirements:** None that the Builder can complete
 - **Outstanding blockers:** None
-- **Review request:** Not ready
+- **Acceptance criteria:** AC-01 to AC-08 and AC-12 met and verified. AC-09,
+  AC-10, AC-11 met as far as a machine without GitHub can show; proven by
+  the user's first push and first manual run of the release workflow.
+- **The licence commit:** `6b4633e`.
+- **The contract change:** `144fe91`, `server.sourceUrl`, additive.
+- **For the user:** `docs/release/first-publication.md`. Above all: a
+  manual run of the release workflow before any tag; it is the first arm64
+  build there has ever been. And one thing to know before others
+  contribute: under AGPL with no contributor agreement, which is what
+  `CONTRIBUTING.md` now says, relicensing later needs every contributor.
+- **Review request:** Ready
 <!-- BUILDER_WORK_LOG_END -->
 
 ## 18. Planning change log
