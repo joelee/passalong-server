@@ -274,6 +274,31 @@ fn an_operators_session_from_an_empty_host() {
         0
     );
     host.run(&["key", "delete", &key_id]);
+
+    // What was done, by whom it concerns, newest first; and no secret.
+    let trail = host.json(&["audit", "--limit", "3"]);
+    let actions: Vec<&str> = trail
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["action"].as_str().unwrap())
+        .collect();
+    assert_eq!(actions, ["key.delete", "key.revoke", "key.extend"]);
+    assert_eq!(trail[0]["keyId"], key_id.as_str());
+    assert!(trail[0]["at"].as_str().unwrap().ends_with('Z'));
+    let listed = host.run(&["audit"]);
+    assert!(
+        listed.lines().next().unwrap().starts_with("WHEN"),
+        "{listed}"
+    );
+    for action in ["workspace.create", "key.create", "key.delete"] {
+        assert!(listed.contains(action), "{listed}");
+    }
+    assert!(
+        listed.lines().count() > 4,
+        "more than the three of --limit 3"
+    );
+    host.fails(&["audit", "--limit", "0"], 2);
     assert_eq!(
         host.json(&["key", "list", "--workspace", "home"])
             .as_array()

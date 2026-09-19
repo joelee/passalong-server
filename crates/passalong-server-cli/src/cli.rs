@@ -53,6 +53,12 @@ pub enum Commands {
     /// Show or abort a rewrite session a device left open.
     #[command(subcommand)]
     Rewrite(RewriteCommand),
+    /// What was done to workspaces and keys, newest first.
+    Audit {
+        /// How many entries.
+        #[arg(long, value_name = "N", default_value_t = 50, value_parser = clap::value_parser!(u32).range(1..))]
+        limit: u32,
+    },
     /// Check the configuration, the data directory, and every workspace.
     Check {
         /// Instead, ask the running server whether it is ready: exit 0 if

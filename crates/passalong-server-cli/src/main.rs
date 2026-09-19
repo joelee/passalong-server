@@ -51,6 +51,7 @@ fn run(cli: &Cli) -> commands::Done {
         Commands::Workspace(command) => commands::workspace(&host, command),
         Commands::Key(command) => commands::key(&host, command),
         Commands::Rewrite(command) => commands::rewrite(&host, command),
+        Commands::Audit { limit } => commands::audit(&host, *limit),
         Commands::Check { .. } => commands::check(&host, &file),
         Commands::Serve => serve::serve(host.config),
         Commands::Tls(command) => commands::tls(&host, command),

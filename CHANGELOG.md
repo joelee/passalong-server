@@ -6,6 +6,8 @@ passalong client's.
 
 ## Unreleased
 
+- `passalong-server audit`: reads the audit trail of workspace and key
+  changes, which has been written since PLAN-00003 and had no reader.
 - Contract: `getViewer` answers `server.sourceUrl`, where the server's source
   is. Additive and optional for a client; the first change to the contract
   since it was written.

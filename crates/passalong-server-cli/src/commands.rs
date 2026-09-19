@@ -145,6 +145,46 @@ pub fn init(args: &InitArgs) -> Done {
     ))
 }
 
+// ---------- the audit trail ----------
+
+/// `audit`: what the commands did to workspaces and keys. The trail holds
+/// ids, labels, and names; a secret was never written to it.
+pub fn audit(host: &Host, limit: u32) -> Done {
+    let entries = host
+        .control()?
+        .audit(usize::try_from(limit).unwrap_or(usize::MAX))
+        .map_err(said)?;
+    let dash = |text: &Option<String>| text.clone().unwrap_or_else(|| "-".to_owned());
+    let rows: Vec<Vec<String>> = entries
+        .iter()
+        .map(|entry| {
+            vec![
+                timestamp(entry.at),
+                entry.action.clone(),
+                dash(&entry.workspace),
+                dash(&entry.key_id),
+                dash(&entry.detail),
+            ]
+        })
+        .collect();
+    let machine = entries
+        .iter()
+        .map(|entry| {
+            json!({
+                "at": passalong_server_core::clock::rfc3339(entry.at),
+                "action": entry.action,
+                "workspace": entry.workspace,
+                "keyId": entry.key_id,
+                "detail": entry.detail,
+            })
+        })
+        .collect();
+    host.print(
+        table(&["WHEN", "ACTION", "WORKSPACE", "KEY", "DETAIL"], &rows),
+        Value::Array(machine),
+    )
+}
+
 // ---------- TLS ----------
 
 /// Writes `text` to a file that must not exist yet, readable by its owner

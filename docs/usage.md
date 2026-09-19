@@ -89,6 +89,19 @@ dies, another device can finish or abort it with `passalong encrypt
 | `passalong-server rewrite show <workspace>` | Kind, the key that holds it, how much is staged, and whether its lease has ended |
 | `passalong-server rewrite abort <workspace> [--force]` | The workspace is again what it was before; what was staged is dropped. It needs no API key and no words, because aborting destroys nothing but the staged copy. While the holder's lease runs, the device may still be at work, and this needs `--force` |
 
+## The audit trail
+
+```text
+passalong-server audit
+passalong-server audit --limit 3
+```
+
+What the commands did to workspaces and keys, newest first: when, the
+action (`workspace.create`, `key.revoke`, …), the workspace, the key's id,
+and a detail such as a label. 50 entries unless `--limit` says otherwise;
+`--json` for a machine. It never holds a secret: a key's secret is written
+nowhere. Requests are not in it; those are in the server's log.
+
 ## Check
 
 `passalong-server check` prints one line per step: the configuration, the
