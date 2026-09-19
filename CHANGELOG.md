@@ -6,6 +6,9 @@ passalong client's.
 
 ## Unreleased
 
+- Contract: `getViewer` answers `server.sourceUrl`, where the server's source
+  is. Additive and optional for a client; the first change to the contract
+  since it was written.
 - The source is one line away: every help screen ends with the repository's
   address and the licence; the image carries OCI labels for source, licence,
   version, and revision; the README opens with the link.

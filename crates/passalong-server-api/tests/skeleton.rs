@@ -96,6 +96,11 @@ async fn the_viewer_is_the_key_and_the_server() {
     assert_eq!(viewer["key"]["label"], "laptop");
     assert!(viewer["key"]["expiresAt"].as_str().unwrap().ends_with('Z'));
     assert_eq!(viewer["server"]["apiVersion"], 1);
+    // Where this server's source is, for a client to show (AGPL, section 13).
+    assert_eq!(
+        viewer["server"]["sourceUrl"],
+        "https://github.com/joelee/passalong-server"
+    );
     assert!(
         viewer["server"]["maxItemBytes"].is_null(),
         "unlimited is said as null"

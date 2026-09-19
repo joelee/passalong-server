@@ -50,7 +50,7 @@ use.
 
 | Operation | Route | Notes |
 |---|---|---|
-| `getViewer` | `GET /v1/viewer` | The key (id, label, role, `expiresAt`) and the server (`version`, `apiVersion`, `maxItemBytes`, which is `null` for no limit) |
+| `getViewer` | `GET /v1/viewer` | The key (id, label, role, `expiresAt`) and the server (`version`, `apiVersion`, `maxItemBytes`, which is `null` for no limit, and `sourceUrl`, where this server's source is) |
 | `getWorkspace` | `GET /v1/workspace` | Name, quota, bytes used, item count, and `encryption`: state, `keyId`, the `header`, and the rewrite session if one is open |
 | `probeWrite` | `POST /v1/workspace/probe` | Checks the role, the rewrite state, and that staging is writable |
 | `cleanStaging` | `POST /v1/workspace/clean-staging` | `{ "olderThanSecs": … }`; answers the number removed |

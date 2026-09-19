@@ -1661,6 +1661,11 @@
                   }
                 ],
                 "description": "null: no limit. The client checks it before it uploads, because its other backends have none."
+              },
+              "sourceUrl": {
+                "type": "string",
+                "format": "uri",
+                "description": "Where the source of this server is. The server is AGPL-3.0-or-later: whoever runs a modified one for others must offer them its source, and points this at it. Added after the first draft of v1; a client must not require it."
               }
             }
           }

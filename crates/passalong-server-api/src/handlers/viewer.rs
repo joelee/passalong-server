@@ -17,6 +17,11 @@ use serde_json::value::RawValue;
 use super::Answer;
 use crate::state::AppState;
 
+/// Where this server's source is. The AGPL (section 13) has whoever runs a
+/// modified server for others offer them its source; a client can show this.
+/// A modified version points it at its own: `repository` in `Cargo.toml`.
+const SOURCE_URL: &str = env!("CARGO_PKG_REPOSITORY");
+
 /// The API version this server speaks: the `/v1` of every path.
 const API_VERSION: u32 = 1;
 
@@ -43,6 +48,7 @@ pub async fn get_viewer(
             "version": env!("CARGO_PKG_VERSION"),
             "apiVersion": API_VERSION,
             "maxItemBytes": max.map(|bytes| bytes.to_string()),
+            "sourceUrl": SOURCE_URL,
         },
     }))
     .into_response())
