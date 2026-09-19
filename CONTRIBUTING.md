@@ -1,7 +1,10 @@
 # Contributing to passalong-server
 
-passalong-server is proprietary for now (see [LICENSE](LICENSE)) and does
-not accept outside contributions until an open-source licence is chosen.
+passalong-server is free software under the GNU AGPL, version 3 or later
+(see [LICENSE](LICENSE)). Contributions are welcome, and are accepted under
+that same licence: by opening a pull request you agree that your
+contribution is licensed as `AGPL-3.0-or-later`. There is no contributor
+agreement; you keep your copyright.
 
 Bug reports and ideas are welcome as issues. Report security problems
 privately, as [SECURITY.md](SECURITY.md) explains.

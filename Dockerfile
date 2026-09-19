@@ -15,8 +15,7 @@ RUN useradd --system --uid 10001 --home-dir /var/lib/passalong-server --create-h
     && chmod 0700 /etc/passalong-server /var/lib/passalong-server \
     && chown passalong-server: /etc/passalong-server /var/lib/passalong-server
 COPY --from=builder /src/target/release/passalong-server /usr/local/bin/passalong-server
-# The proprietary licence. The image is built and run by its operator, never
-# published; THIRD-PARTY-NOTICES joins it before that changes (docs/backlog.md).
+# The terms travel with the binary: AGPL-3.0-or-later.
 COPY LICENSE /usr/share/doc/passalong-server/LICENSE
 # Where `init` writes and every command looks: the configuration volume. A
 # fresh named volume takes this directory's owner, which is the server's user.

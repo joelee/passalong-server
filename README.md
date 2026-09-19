@@ -24,8 +24,7 @@ store on an SSH server or in a local folder.
   and never sees a key, the words, or plaintext.
 - A plain **REST + JSON** API, with HTTP streams for content.
 - One small Rust binary, as a **Docker** image or a **systemd** service,
-  with its own **operations CLI**. Built from this repository: nothing is
-  published while the licence is proprietary.
+  with its own **operations CLI**. Free software, under the GNU AGPL v3.
 
 ## Compatibility
 
@@ -44,5 +43,19 @@ store on an SSH server or in a local folder.
 
 ## Licence
 
-Proprietary, all rights reserved, until an open-source licence is chosen.
+Copyright 2026 Joseph H Lee (@joelee).
+
+passalong-server is free software: you can redistribute it and/or modify it
+under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or (at your
+option) any later version (`AGPL-3.0-or-later`). It is distributed in the
+hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
+implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 See [LICENSE](LICENSE).
+
+The AGPL reaches network use: if you run a modified passalong-server for
+others, you must offer them the source of your version.
+
+The [passalong client](https://github.com/joelee/passalong) is a separate
+work under Apache-2.0. The two meet only at the documented
+[API](docs/api/README.md).

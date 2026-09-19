@@ -10,8 +10,9 @@ members = [
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.98"
-# Proprietary for now: see LICENSE. Never published to crates.io.
-license-file = "LICENSE"
+# GNU Affero General Public License, version 3 or later: see LICENSE.
+# Not published to crates.io.
+license = "AGPL-3.0-or-later"
 publish = false
 repository = "https://github.com/joelee/passalong-server"
 description = "Self-hosted HTTPS server for passalong: clipboard and file sharing between your devices"

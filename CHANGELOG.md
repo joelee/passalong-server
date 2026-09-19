@@ -6,6 +6,10 @@ passalong client's.
 
 ## Unreleased
 
+- **The licence is the GNU Affero General Public License, version 3 or
+  later** (`AGPL-3.0-or-later`), in place of the proprietary notice under
+  which nothing could be distributed (PLAN-00006). Dependencies stay
+  permissive-only.
 - The kill harness kills its child with SIGKILL instead of aborting it. An
   abort dumps core, and a run of the harness did so hundreds of times: each
   a crash report on a desktop that announces them, and, where the kernel

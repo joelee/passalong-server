@@ -5,8 +5,9 @@ Applies to this repo unless a deeper `AGENTS.md` overrides it. Follow explicit u
 
 This repo is the **passalong server**. The client lives in `../passalong/`
 (Apache-2.0, <https://github.com/joelee/passalong>). The two share process
-and conventions, not code ownership: this repo is proprietary, so nothing
-from it may be copied into the client, and the client never depends on a
+and conventions, not code ownership: this repo is AGPL-3.0-or-later, and
+AGPL code cannot enter an Apache-2.0 work, so nothing
+from it may be copied into the client (the other direction is allowed, with the client's `NOTICE`), and the client never depends on a
 crate from here. The contract between them is the versioned API
 (`docs/api/`), nothing else.
 
@@ -15,7 +16,7 @@ crate from here. The contract between them is the versioned API
 - Format with `rustfmt`; lint with `clippy`; use `cargo` commands only unless docs specify stricter tools.
 - Must run in containers: keep Docker/Colima-compatible build and runtime; avoid host-only paths.
 - Crates here are never published to crates.io: every manifest keeps `publish = false`.
-- Nothing else is published either while the licence is proprietary: no Docker Hub image, no release binaries.
+- The licence is AGPL-3.0-or-later (`LICENSE`; a test pins its text). Dependencies stay permissive-only (`deny.toml`); do not widen that list without the user.
 - The API is REST + JSON. The server never exposes a field taken from an item's `meta`; see "The envelope" in `docs/architecture.md`.
 
 ## Non-negotiables

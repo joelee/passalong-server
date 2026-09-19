@@ -3,8 +3,8 @@ name: Release
 # Pushing a tag vX.Y.Z checks the release records and verifies the build:
 # the workspace, and the image for amd64 and arm64. It publishes nothing: no
 # image is pushed and no GitHub release is created, because the server is
-# proprietary and not distributed (IDEA-00001 r03, decision of 2026-09-18).
-# A publish job returns here once a licence is chosen; see docs/backlog.md.
+# not distributed yet. The licence is AGPL-3.0-or-later since PLAN-00006,
+# which also brings the publish job.
 on:
   push:
     tags: ["v*.*.*"]

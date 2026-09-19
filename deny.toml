@@ -11,8 +11,9 @@ targets = [
 [advisories]
 
 [licenses]
-# Permissive licences only, which matters twice here: the server is
-# proprietary, so a copyleft dependency could not be shipped at all.
+# Permissive licences only. The server itself is AGPL-3.0-or-later, which
+# would admit copyleft dependencies; none is needed, and a short list is
+# easier to honour in THIRD-PARTY-NOTICES. Widening it is the owner's call.
 # A dependency offering several licences is accepted when any is listed.
 allow = [
     "Apache-2.0",
@@ -27,8 +28,9 @@ allow = [
 confidence-threshold = 0.9
 
 [licenses.private]
-# The workspace's own crates carry the proprietary LICENSE and are never
-# published.
+# The workspace's own crates are AGPL-3.0-or-later, which is not on the
+# list above because that list is for dependencies. They are never
+# published to a registry.
 ignore = true
 
 [bans]

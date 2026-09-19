@@ -398,8 +398,8 @@ See [the API draft](api/README.md) for the routes.
 
 ## Deployment
 
-- **Nothing is published** while the licence is proprietary: no Docker Hub
-  image, no binaries. Operators build from this repository, and a release
+- **Nothing is published yet**: no Docker Hub
+  image, no binaries. The licence is AGPL-3.0-or-later. Operators build from this repository, and a release
   tag only verifies that the build works.
 - **Docker.** Built by `docker compose build` from `deploy/docker/`; the
   release workflow builds amd64 and arm64. Debian slim, uid 10001, read-only
