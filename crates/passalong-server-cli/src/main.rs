@@ -9,6 +9,7 @@ mod commands;
 mod output;
 mod owner;
 mod serve;
+mod service;
 
 use std::process::ExitCode;
 
@@ -18,15 +19,18 @@ use passalong_server_core::config;
 use cli::{Cli, Commands};
 use commands::Host;
 
-fn later(what: &str) -> commands::Done {
-    Err(format!(
-        "`{what}` is not in this build yet: it arrives with the Docker and systemd slice of v0.1.0. See docs/backlog.md"
-    ))
-}
-
 fn run(cli: &Cli) -> commands::Done {
-    if let Commands::Init(args) = &cli.command {
-        return commands::init(args);
+    match &cli.command {
+        Commands::Init(args) => return commands::init(args),
+        // As root, before there is a configuration or a data directory.
+        Commands::Service(command) => {
+            return service::service(
+                &service::system::Host::default(),
+                &service::plan::Layout::default(),
+                command,
+            );
+        }
+        _ => {}
     }
     let (config, file) =
         config::load(cli.config.as_deref(), &config::Process).map_err(|err| err.to_string())?;
@@ -43,14 +47,13 @@ fn run(cli: &Cli) -> commands::Done {
         json: cli.json,
     };
     match &cli.command {
-        Commands::Init(_) => unreachable!("handled above"),
+        Commands::Init(_) | Commands::Service(_) => unreachable!("handled above"),
         Commands::Workspace(command) => commands::workspace(&host, command),
         Commands::Key(command) => commands::key(&host, command),
         Commands::Rewrite(command) => commands::rewrite(&host, command),
         Commands::Check { .. } => commands::check(&host, &file),
         Commands::Serve => serve::serve(host.config),
         Commands::Tls(command) => commands::tls(&host, command),
-        Commands::Service { .. } => later("service"),
     }
 }
 

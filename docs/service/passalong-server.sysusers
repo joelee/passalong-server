@@ -1,0 +1,3 @@
+# The user `passalong-server serve` runs as.
+# Written by `passalong-server service install`.
+u passalong-server - "passalong-server" /var/lib/passalong-server /usr/sbin/nologin

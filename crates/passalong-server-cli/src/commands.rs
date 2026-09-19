@@ -77,18 +77,15 @@ impl Host {
 
 // ---------- init ----------
 
-fn default_paths() -> (PathBuf, PathBuf) {
-    let root = crate::owner::current_uid().is_ok_and(|uid| uid == 0);
-    let home = std::env::var("HOME")
-        .ok()
-        .filter(|home| !home.is_empty())
-        .map(PathBuf::from);
-    match (root, home) {
+/// Where `init` writes when it is not told: the configuration file and the
+/// data directory. The file is where `PASSALONG_SERVER_CONFIG_FILE` says,
+/// if it says: that is where every later command will look, and it is how
+/// the container image points `init` at its configuration volume.
+fn default_paths(env: &dyn config::Environment, root: bool) -> (PathBuf, PathBuf) {
+    let set = |name: &str| env.var(name).filter(|value| !value.is_empty());
+    let (file, data) = match (root, set("HOME").map(PathBuf::from)) {
         (false, Some(home)) => {
-            let config = std::env::var("XDG_CONFIG_HOME")
-                .ok()
-                .filter(|dir| !dir.is_empty())
-                .map_or_else(|| home.join(".config"), PathBuf::from);
+            let config = set("XDG_CONFIG_HOME").map_or_else(|| home.join(".config"), PathBuf::from);
             (
                 config.join("passalong-server/config.toml"),
                 home.join(".local/share/passalong-server"),
@@ -98,7 +95,8 @@ fn default_paths() -> (PathBuf, PathBuf) {
             "/etc/passalong-server/config.toml".into(),
             "/var/lib/passalong-server".into(),
         ),
-    }
+    };
+    (set(config::FILE_VARIABLE).map_or(file, PathBuf::from), data)
 }
 
 fn private_dir(path: &Path) -> Result<(), String> {
@@ -111,7 +109,8 @@ fn private_dir(path: &Path) -> Result<(), String> {
 }
 
 pub fn init(args: &InitArgs) -> Done {
-    let (default_config, default_data) = default_paths();
+    let root = crate::owner::current_uid().is_ok_and(|uid| uid == 0);
+    let (default_config, default_data) = default_paths(&config::Process, root);
     let file = args.config_file.clone().unwrap_or(default_config);
     let data_dir = args.data_dir.clone().unwrap_or(default_data);
     if file.exists() {
@@ -719,5 +718,67 @@ pub fn check(host: &Host, config_file: &Path) -> Done {
         Ok(text)
     } else {
         Err(format!("{text}{failed} checks failed"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    struct Vars(BTreeMap<&'static str, &'static str>);
+
+    impl config::Environment for Vars {
+        fn var(&self, name: &str) -> Option<String> {
+            self.0.get(name).map(|value| (*value).to_owned())
+        }
+        fn is_file(&self, _: &Path) -> bool {
+            false
+        }
+    }
+
+    fn paths(vars: &[(&'static str, &'static str)], root: bool) -> (String, String) {
+        let (file, data) = default_paths(&Vars(vars.iter().copied().collect()), root);
+        (file.display().to_string(), data.display().to_string())
+    }
+
+    #[test]
+    fn init_writes_where_later_commands_will_look() {
+        let system = (
+            "/etc/passalong-server/config.toml".to_owned(),
+            "/var/lib/passalong-server".to_owned(),
+        );
+        assert_eq!(paths(&[], false), system);
+        assert_eq!(paths(&[("HOME", "/root")], true), system);
+        assert_eq!(paths(&[("HOME", "")], false), system);
+        assert_eq!(
+            paths(&[("HOME", "/home/me")], false),
+            (
+                "/home/me/.config/passalong-server/config.toml".to_owned(),
+                "/home/me/.local/share/passalong-server".to_owned()
+            )
+        );
+        assert_eq!(
+            paths(&[("HOME", "/home/me"), ("XDG_CONFIG_HOME", "/x")], false).0,
+            "/x/passalong-server/config.toml"
+        );
+        // The container: a home, and a variable that says otherwise.
+        let named = [
+            ("HOME", "/var/lib/passalong-server"),
+            (
+                "PASSALONG_SERVER_CONFIG_FILE",
+                "/etc/passalong-server/config.toml",
+            ),
+        ];
+        assert_eq!(paths(&named, false).0, "/etc/passalong-server/config.toml");
+        // Set and empty is unset.
+        assert_eq!(
+            paths(
+                &[("HOME", "/home/me"), ("PASSALONG_SERVER_CONFIG_FILE", "")],
+                false
+            )
+            .0,
+            "/home/me/.config/passalong-server/config.toml"
+        );
     }
 }

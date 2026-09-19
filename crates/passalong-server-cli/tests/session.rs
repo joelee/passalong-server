@@ -317,11 +317,22 @@ fn an_operators_session_from_an_empty_host() {
         "the deleted workspace's directory is gone"
     );
 
-    // What belongs to a later slice exists and says so.
-    assert!(
-        host.fails(&["service", "install"], 1)
-            .contains("not in this build")
-    );
+    // `service` changes the system: not as root, it refuses, and does
+    // so without needing a configuration or the data directory.
+    // Never as root: there the command would do what it says, to this machine.
+    let root = {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata("/proc/self").unwrap().uid() == 0
+    };
+    for what in ["install", "remove"].into_iter().filter(|_| !root) {
+        let output = host.raw(&["service", what]);
+        assert_eq!(output.status.code(), Some(1));
+        let said = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(
+            said.contains("must run as root") && said.contains("sudo "),
+            "{said}"
+        );
+    }
     // Usage errors are 2.
     host.fails(&["key", "create"], 2);
     host.fails(&["no-such-command"], 2);

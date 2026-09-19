@@ -21,7 +21,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/passalong-server serve
+ExecStart={{binary}} serve
 User=passalong-server
 Group=passalong-server
 # /var/lib/passalong-server and /etc/passalong-server, owned and private.

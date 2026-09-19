@@ -56,18 +56,23 @@ links:
 check: fmt-check lint links test coverage build
 
 # Full CI pipeline: all checks, then the audit, workflows, and the image
-ci: check audit lint-workflows docker-build
+ci: check audit lint-workflows docker-build test-deploy test-service
 
 # Build the container image
 docker-build:
     docker build -t {{image}} .
+
+# deploy/docker end to end, by the commands of its README
+test-deploy:
+    scripts/test-deploy.sh
+
+# `service install` and `service remove` on a real systemd, in a throwaway container
+test-service:
+    scripts/test-service.sh
 
 # Run the CLI, e.g. `just run key list`
 run *ARGS:
     cargo run -p passalong-server -- {{ARGS}}
 
 # Planned recipes, added by the plans that need them (docs/backlog.md):
-#   test-integration  the built image, driven over HTTPS
 #   test-client       a released passalong client against this server
-#   test-deploy       deploy/docker end to end, as the client's does
-#   openapi           export docs/api/openapi.json and fail on drift

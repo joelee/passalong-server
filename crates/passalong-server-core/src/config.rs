@@ -18,7 +18,8 @@ use crate::workspace::Limits;
 pub const SAMPLE: &str = include_str!("../../../config.sample.toml");
 
 const APP: &str = "passalong-server";
-const FILE_VARIABLE: &str = "PASSALONG_SERVER_CONFIG_FILE";
+/// The variable that names the configuration file.
+pub const FILE_VARIABLE: &str = "PASSALONG_SERVER_CONFIG_FILE";
 const LEVEL_VARIABLE: &str = "PASSALONG_SERVER_LOG_LEVEL";
 
 /// What the configuration needs of the world, so that tests can supply it.

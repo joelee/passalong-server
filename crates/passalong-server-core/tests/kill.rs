@@ -226,7 +226,12 @@ enum Ended {
 }
 
 fn run_child(dir: &Path, scenario: &str, fault: Option<(&str, u32)>) -> Ended {
-    let mut command = Command::new(CHILD);
+    // The child aborts on purpose, hundreds of times. Where the kernel writes
+    // core dumps beside the process (`kernel.core_pattern=core`), that would
+    // be hundreds of files in this crate; so it runs with core dumps off.
+    // `exec` makes the child the process that is waited for, signal and all.
+    let mut command = Command::new("sh");
+    command.args(["-c", "ulimit -c 0; exec \"$0\" \"$@\"", CHILD]);
     command.args(["script", dir.to_str().unwrap(), scenario]);
     command
         .env_remove("PASSALONG_FAULT")

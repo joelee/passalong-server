@@ -43,11 +43,28 @@ pub enum Commands {
     /// Make a self-signed certificate, or print a certificate's pin.
     #[command(subcommand)]
     Tls(TlsCommand),
-    /// The systemd service. Not in this build yet.
-    Service {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true, hide = true)]
-        rest: Vec<String>,
+    /// Install the server as a systemd system service, or remove it.
+    #[command(subcommand)]
+    Service(ServiceCommand),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ServiceCommand {
+    /// As root: install this binary, create the service's user and its
+    /// directories, write a configuration if there is none, and write,
+    /// enable, and start the unit. Overwrites nothing that is yours.
+    Install {
+        /// Make a self-signed certificate for this name if there is no
+        /// certificate yet. May be given more than once.
+        #[arg(long, value_name = "NAME")]
+        host: Vec<String>,
+        /// As --host, for an address.
+        #[arg(long, value_name = "ADDR")]
+        ip: Vec<std::net::IpAddr>,
     },
+    /// As root: stop, disable, and remove the unit. Data, configuration,
+    /// certificate, user, and binary stay.
+    Remove,
 }
 
 #[derive(Debug, Subcommand)]

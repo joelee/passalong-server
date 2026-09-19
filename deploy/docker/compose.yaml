@@ -1,29 +1,35 @@
-# passalong-server with Docker Compose. DRAFT: works once `serve` exists.
+# passalong-server with Docker Compose. README.md, beside this file, is the
+# walkthrough; `just test-deploy` runs its commands.
 #
-#   cp .env.sample .env        # then edit
-#   docker compose build       # no image is published: build it here
-#   docker compose up -d
-#   docker compose exec server passalong-server workspace create home
-#   docker compose exec server passalong-server key create --workspace home --label laptop --expires 90d
-#
-# Admin commands always run inside the container, against the same data
-# directory the server uses; nothing is managed over the network.
+# No image is published: `docker compose build` builds it from this
+# repository. Admin commands run inside the container, as the user the server
+# runs as, against the same data; nothing is managed over the network.
 services:
   server:
-    # Built from this repository; nothing is pulled from a registry.
     build:
       context: ../..
-    image: passalong-server:local
+    image: "${PASSALONG_SERVER_IMAGE:-passalong-server:local}"
     restart: unless-stopped
     ports:
       - "${PASSALONG_SERVER_PORT:-8443}:8443"
     volumes:
-      - "${PASSALONG_SERVER_DATA:-./data}:/var/lib/passalong-server"
-      - "./config.toml:/etc/passalong-server/config.toml:ro"
-      - "${PASSALONG_SERVER_TLS:-./tls}:/etc/passalong-server/tls:ro"
+      # Named volumes, not folders of the host: a fresh one belongs to the
+      # server's user (uid 10001), which a folder Docker creates does not.
+      - data:/var/lib/passalong-server
+      # config.toml, and tls/ with the certificate and its key.
+      - config:/etc/passalong-server
+    # Never set `user:`. The commands refuse to run as anyone but the owner
+    # of the data, and `compose exec` runs as the image's user, who is.
     read_only: true
     tmpfs:
       - /tmp
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
+    # `serve` lets requests in flight finish for up to 30 seconds. Docker's
+    # default of 10 would kill it in the middle of them.
+    stop_grace_period: 45s
+
+volumes:
+  data:
+  config:
