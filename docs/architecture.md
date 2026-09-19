@@ -398,9 +398,11 @@ See [the API draft](api/README.md) for the routes.
 
 ## Deployment
 
-- **Nothing is published yet**: no Docker Hub
-  image, no binaries. The licence is AGPL-3.0-or-later. Operators build from this repository, and a release
-  tag only verifies that the build works.
+- **A release tag publishes**: `joeworks/passalong-server` on Docker Hub for
+  amd64 and arm64, and a GitHub release with an archive per architecture and
+  `SHA256SUMS`. Both carry `LICENSE` (AGPL-3.0-or-later) and
+  `THIRD-PARTY-NOTICES`. Nothing else publishes, and the workflow run by
+  hand publishes nothing. Building from the repository always works too.
 - **Docker.** Built by `docker compose build` from `deploy/docker/`; the
   release workflow builds amd64 and arm64. Debian slim, uid 10001, read-only
   root filesystem, all capabilities dropped. Two named volumes: `data` at

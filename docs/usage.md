@@ -7,15 +7,26 @@ Every command line on this page is run by a test: those of
 
 ## Installing
 
-Nothing is published, so every installation starts from a clone of this
-repository. There are three ways; pick one.
+There are three ways; pick one. Releases are published from v0.1.0 on: an
+image on Docker Hub, `joeworks/passalong-server`, and archives with a binary
+on the [releases page](https://github.com/joelee/passalong-server/releases).
+Building from a clone of the repository always works as well.
 
 **With Docker.** [`deploy/docker/README.md`](../deploy/docker/README.md) is
 the walkthrough: build, `init`, a TLS pair, `docker compose up -d`. The rest
 of this page applies with `docker compose exec server` before each command.
 
-**As a systemd service.** Build the binary with the Rust toolchain of
-`rust-toolchain.toml`, then let it install itself:
+**As a systemd service.** Take the archive for your architecture from the
+releases page, check it, and let the binary install itself:
+
+```text
+sha256sum --check --ignore-missing SHA256SUMS
+tar -xzf passalong-server-v0.1.0-linux-amd64.tar.gz
+sudo passalong-server-v0.1.0-linux-amd64/passalong-server service install --host nas.example
+```
+
+It needs glibc 2.35 or later (Debian 12, Ubuntu 22.04, and newer). Or build
+it, with the Rust toolchain of `rust-toolchain.toml`:
 
 ```text
 cargo build --release --locked -p passalong-server

@@ -4,8 +4,9 @@ From a clone of this repository to a server with a first API key. The
 commands under "Install", and the way files are put into a volume, are run
 by `scripts/test-deploy.sh` (`just test-deploy`).
 
-No image is published, so the first step builds one. Commands are run in
-this folder.
+Commands are run in this folder. The first step builds the image from this
+repository; to use the published one instead, see
+[below](#the-published-image).
 
 ## Install
 
@@ -36,6 +37,22 @@ the server's next request on; nothing needs a restart.
 
 `docker compose ps` shows `healthy` once the server is ready: the image asks
 its own `/readyz`.
+
+## The published image
+
+From v0.1.0 on, every release is on Docker Hub as
+`joeworks/passalong-server`, for amd64 and arm64, tagged `X.Y.Z`, `X.Y`, and
+`latest`. To run it instead of building: in `.env` set
+
+```text
+PASSALONG_SERVER_IMAGE=joeworks/passalong-server:0.1.0
+```
+
+and run `docker compose pull` where the walkthrough says `docker compose
+build`. Name a version, not `latest`, so that an update is something you do
+and not something that happens. The image holds its licence and its
+dependencies' notices in `/usr/share/doc/passalong-server/`, and
+`docker inspect` shows its source and revision.
 
 ## Where things are
 
@@ -84,7 +101,7 @@ uid 10001 (`sudo chown -R 10001 data config`), then replace `data:` and
 
 ```text
 docker compose stop              # lets requests in flight finish; up to 45 s
-git pull && docker compose build && docker compose up -d
+git pull && docker compose build && docker compose up -d   # or: a new version in .env, then pull
 docker compose down              # removes the container, keeps both volumes
 ```
 

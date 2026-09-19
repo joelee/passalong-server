@@ -98,5 +98,5 @@ Update when behavior, commands, config, architecture, or user workflow changes:
    - Run `scripts/check-release-tag.sh vX.Y.Z`, and suggest the PR title and description.
 5. User verifies, pushes the branch, and opens a PR to `main`.
 6. Agent debugs PR CI failures on the branch. User gets the PR approved and merged.
-7. User pulls `main`, tags the merge commit, and pushes the tag. The Release workflow checks the tag and release records and verifies the build: the workspace, and the image for amd64 and arm64. It publishes nothing: no image is pushed and no release is created. A pushed version tag is never moved.
-8. Agent helps debug a failed release run. Publishing returns to this workflow only once a licence is chosen (IDEA-00001-R02-MED-03).
+7. User pulls `main`, tags the merge commit, and pushes the tag. The Release workflow checks the tag and release records, runs `just ci`, builds amd64 and arm64, and publishes: `joeworks/passalong-server` on Docker Hub (`X.Y.Z`, `X.Y`, `latest`) and a GitHub release with archives and `SHA256SUMS`. Run by hand it publishes nothing: do that before a first tag and after changing the workflow (`docs/release/first-publication.md`). A pushed version tag is never moved, and what is published is never taken back: a bad release is answered by a patch release.
+8. Agent helps debug a failed release run. The agent never holds a registry or GitHub credential and never pushes, tags, or publishes.

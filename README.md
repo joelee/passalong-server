@@ -33,7 +33,7 @@ Free software under the GNU AGPL v3 or later.
 
 | passalong-server | API | passalong client |
 |---|---|---|
-| 0.1.x (planned) | v1 | 0.3.0 and later (planned) |
+| 0.1.x | v1 | 0.3.0 and later (planned) |
 
 ## Get it, build it, change it
 
