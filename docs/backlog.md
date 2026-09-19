@@ -19,10 +19,13 @@ Future work not covered by an active plan. Completed items are removed.
   no tag has been pushed. Expect the first one to find something.
 
 ### Unscheduled
-- An open-source licence. Until then nothing is published.
-- **Publishing**, once a licence exists: image and binaries, the release
-  workflow's publish job, and `THIRD-PARTY-NOTICES` in every artefact
-  (reopens IDEA-00001-R02-MED-03).
+- **Active, PLAN-00006.** Before v0.1.0 is tagged: AGPL v3, third-party
+  notices, publishing to Docker Hub and GitHub on a tag, the source URL
+  wherever the program speaks, `tls letsencrypt`, `audit`.
+- **crates.io**: every manifest keeps `publish = false`. Nobody has asked.
+- **Signing and provenance** for the image and the archives.
+- **A contributor agreement**, if the freedom to relicense alone matters
+  once others contribute under AGPL.
 
 ## Agent suggested next steps
 
@@ -32,8 +35,6 @@ Future work not covered by an active plan. Completed items are removed.
   `local` backends; the on-disk files are byte-identical by design.
 - **`GET /v1/events`**, a server-sent-events stream, so pull mode need not
   poll.
-- **A way for systemd hosts to get the binary** under a build-only
-  release: a `just install` recipe, or documented `cargo build` steps.
 - **Server-side retention** per workspace by age and count, which works for
   encrypted workspaces too because ids carry creation time.
 - **`passalong-server backup`**: a consistent copy while the server runs.
@@ -41,20 +42,16 @@ Future work not covered by an active plan. Completed items are removed.
 - **Remote administration** with an admin-scoped key.
 - **A static musl build and a distroless image.**
 - **Metrics endpoint.**
-- **ACME.**
+- **ACME** in the server. `tls letsencrypt` prints how to do it with
+  `certbot` meanwhile.
 
 - **An in-memory id index per workspace.** Listing reads the directory;
   measure before optimising.
 
-- **Rate limiting of failed authentications**: `limits.auth_failures_per_minute`
-  is parsed and waits for the HTTP slice, which has the client address.
-- **`passalong-server audit`**: the audit trail is written since PLAN-00003
-  and has no command to read it yet.
-- **A send-only role** stays deferred (IDEA-00001 r04 §15).
 
 ### Process
 
-- **`just test-integration`, `test-client`, `test-deploy`, and `openapi`**
-  recipes, named in the `justfile`, arrive with the plans that need them.
+- **`just test-client`**: a released passalong client against this server,
+  once there is one.
 - **macOS job in CI** is deliberately absent: the server supports Linux
   only. Revisit if developers need to build on macOS.
