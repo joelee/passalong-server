@@ -33,13 +33,13 @@ confidence: medium
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; the planner initializes them.
-implementation_status: not-started
-builder_agent: null
-builder_model: null
-execution_branch: null
-execution_started_at: null
-execution_updated_at: null
-execution_completed_at: null
+implementation_status: completed
+builder_agent: Claude Code
+builder_model: "anthropic/claude-fable-5-1"
+execution_branch: "feature/docker-and-systemd"
+execution_started_at: "2026-09-18T23:05:00Z"
+execution_updated_at: "2026-09-18T23:35:43Z"
+execution_completed_at: "2026-09-18T23:35:43Z"
 current_step: null
 ---
 
@@ -450,13 +450,13 @@ hardened unit still fails to start; only a real systemd says.
 
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
-| PLAN-00005-STEP-01 | not-started | — | — | — | — |
-| PLAN-00005-STEP-02 | not-started | — | — | — | — |
-| PLAN-00005-STEP-03 | not-started | — | — | — | — |
-| PLAN-00005-STEP-04 | not-started | — | — | — | — |
-| PLAN-00005-STEP-05 | not-started | — | — | — | — |
-| PLAN-00005-STEP-06 | not-started | — | — | — | — |
-| PLAN-00005-STEP-07 | not-started | — | — | — | — |
+| PLAN-00005-STEP-01 | completed | 2026-09-18 | 2026-09-18 | `just docker-build` failed first (`couldn't read config.sample.toml`), then passed; `just ci` exit 0 | One `COPY`. From here on every step ended with `just ci`, not `just check` |
+| PLAN-00005-STEP-02 | completed | 2026-09-18 | 2026-09-18 | 1 unit test with the environment injected; in a read-only container with two fresh named volumes: `init`, `check` exit 0, `tls self-signed` | The volumes came up owned by uid 10001 with nothing done for it, which is what D-01 rests on. `VOLUME` names both directories, so even a bare `docker run` keeps the configuration |
+| PLAN-00005-STEP-03 | completed | 2026-09-18 | 2026-09-18 | `scripts/test-deploy.sh`, seen to fail against the draft compose file, then passing four times; `just ci` | **The draft compose file failed exactly as D-01 said**, and showed it: the failed run left `config.toml` beside it as an empty directory owned by root. **A-04 holds across `compose exec`**: a key made while the server runs is accepted at the next request, one revoked is refused at the next. `HEALTHCHECK` gained `--start-interval=2s`: without it `healthy` came half a minute after readiness. A finding in my own README: `docker compose cp` leaves files owned by root, so a copied private key would be unreadable to the server. Files go in through `exec` as the server's user instead, and the test does that round trip |
+| PLAN-00005-STEP-04 | completed | 2026-09-18 | 2026-09-18 | `unit.rs` 2 tests, `plan.rs` 7 tests | The unit file in the repository is the rendering, byte for byte. A file is known as ours by a marker line; a foreign unit or `sysusers` file, or half a pair, stops the command before anything is done. `ConfigurationDirectoryMode=0700`, or systemd would reset the directory to 0755 at every start |
+| PLAN-00005-STEP-05 | completed | 2026-09-18 | 2026-09-18 | `system.rs` 4 tests in a temporary directory, `mod.rs` 6 tests with a fake host; session test | No `unsafe`, no libc: `std::os::unix::fs::chown` and `/etc/passwd`. Files are written aside with their mode and owner and then moved into place, the binary too, since one that runs cannot be written to. A second install from the build directory does not copy an identical binary again, and so does not restart the service. **The session test runs the real binary and skips `service` when the tests run as root**: there it would do what it says |
+| PLAN-00005-STEP-06 | completed | 2026-09-18 | 2026-09-18 | `scripts/test-service.sh` passing four times, unprivileged; `systemd-analyze verify` silent; `systemd-analyze security`: 2.2 OK | **The checkpoint held: the hardened unit runs this binary with every directive kept.** Found by the real run and not by the fake: a minimal host has no `/etc/sysusers.d`. **See "Deviations and blockers": the first version of this script changed a kernel setting of the Builder's machine** |
+| PLAN-00005-STEP-07 | completed | 2026-09-18 | 2026-09-18 | `just ci` exit 0: line coverage 96.32 %, audit ok with `skip = []`, workflows, image, `test-deploy`, `test-service`; links ok | `README.md`, `docs/usage.md`, `docs/architecture.md`, `docs/backlog.md`, `CHANGELOG.md`, `deploy/docker/README.md`. The measures are under "Verification results" |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 `skipped`. A skipped step requires explicit user approval recorded in Evidence.
@@ -465,26 +465,43 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 
 | Timestamp (UTC) | Step | Event | Evidence or reference | Next action |
 |---|---|---|---|---|
+| 2026-09-18T23:35:43Z | STEP-01 to STEP-07 | Built in the plan's order, Docker first. The two scripts were written before what they test and seen to fail | The step table | Hand-off |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
-
-None.
+| 2026-09-18T23:35:43Z | STEP-06 | **The first version of `scripts/test-service.sh` ran its systemd container with `--privileged`, and that container's `systemd-sysctl` wrote `kernel.core_pattern=core` into the kernel of the Builder's machine.** The setting is one value for the whole kernel, not per container. The machine's own configuration says `\|/usr/lib/systemd/systemd-coredump …`. Noticed because the kill harness, which aborts on purpose, then left 364 core files in `crates/passalong-server-core/`; none was committed, all were deleted. No other setting differed (`kernel.pid_max` is the same on both) | The machine writes core dumps as files named `core` into the crashing process's directory until the setting is restored, which needs root: `sudo sysctl --system`, or a reboot. The Builder did not restore it, having no root and not taking it through Docker | **The user**, to restore the setting |
+| 2026-09-18T23:35:43Z | STEP-06 | What was changed so that it cannot happen again: the container is no longer privileged (`SYS_ADMIN`, writable cgroups of its own, nothing else), so Docker keeps `/proc/sys` read-only; the script first proves that it cannot write the host's `core_pattern` and refuses to go on if it can; the test image has no sysctl files and `systemd-sysctl` masked; the script compares the host's kernel settings before and after and fails if one moved. The kill harness runs its children with core dumps off, so that no host's setting can make it litter | `writable-cgroups` needs Docker 28 or later; on an older daemon the script fails at `docker run` | Nobody |
+| 2026-09-18T23:35:43Z | STEP-03 | The plan's risk row said the idea's 60 MiB cannot be met. That was by `docker image ls`, which counts the unpacked image. The image is 32 MiB as stored and pulled, and 122 MB unpacked: which of the two the idea meant, it does not say | None | Nobody |
 
 ### Verification results
 
 | Timestamp (UTC) | Step | Command or check | Result | Evidence |
 |---|---|---|---|---|
+| 2026-09-18T23:35:43Z | STEP-07 | `just ci` | Exit 0 | Line coverage 96.32 %, region 93.92 %; audit ok, `skip = []`, no package added to `Cargo.lock` |
+| 2026-09-18T23:35:43Z | STEP-03 | `just test-deploy` | Exit 0, four times | About 8 s with the image cached; no container, volume, or image tag left |
+| 2026-09-18T23:35:43Z | STEP-06 | `just test-service` | Exit 0, four times, the last three unprivileged | About 8 s with images cached; `systemd-analyze verify` silent; exposure 2.2 OK; host settings unchanged by it |
+| 2026-09-18T23:35:43Z | STEP-07 | Image size | 32 MiB compressed (`docker image inspect`, 33 615 651 bytes; the base is 28 MiB of it); 122 MB unpacked | Idea's target: under 60 MiB |
+| 2026-09-18T23:35:43Z | STEP-07 | Idle memory of `serve`, TLS, after 75 s | 10.4 MB resident (`VmRSS`, equal to its peak); `docker stats` 2.7 MiB | Idea's target: under 30 MiB |
+| 2026-09-18T23:35:43Z | STEP-07 | Empty host to first key, Docker | 39 s cold image build, then 5 s of commands | Idea's target: under 5 minutes. Machine time on a fast machine, without typing; a small ARM board will build for many minutes |
+| 2026-09-18T23:35:43Z | STEP-07 | Empty host to first key, systemd | 42 s cold `cargo build --release`, then 2 s | As above |
+| 2026-09-18T23:35:43Z | STEP-01 | arm64 | **Not built.** Only the release workflow builds it, on a tag, and none was pushed | — |
 
 ### Completion summary
 
-- **Implementation status:** `not-started`
-- **Completed requirements:** None
-- **Incomplete requirements:** All
-- **Outstanding blockers:** None
-- **Review request:** Not ready
+- **Implementation status:** `completed`
+- **Completed requirements:** REQ-01 to REQ-09
+- **Incomplete requirements:** None
+- **Outstanding blockers:** None for the plan. One for the user's machine:
+  restore `kernel.core_pattern` (`sudo sysctl --system`), see above.
+- **Acceptance criteria:** AC-01 to AC-12 met. AC-10 by the real test, not
+  the fallback. AC-01 with the note that arm64 was not built.
+- **Can v0.1.0 be tagged?** The server is feature-complete for v0.1.0 and
+  both installations are tested. Against tagging now: no client has ever
+  spoken to it, and the first tag will be the first arm64 build. The tag
+  publishes nothing either way. The user's call.
+- **Review request:** Ready
 <!-- BUILDER_WORK_LOG_END -->
 
 ## 18. Planning change log
