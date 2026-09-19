@@ -52,7 +52,9 @@ when, and which ids are staged.
   the age at which the client today offers to take over a recovery.
 - Once it has ended, another key may `takeOverRewrite`, and then resume or
   abort. This is `passalong encrypt --recover` from a second device.
-  Resuming needs the words of the new key; aborting needs nothing but a
+  Resuming needs the words of the new key, and the header they unlock: the
+  session carries it as `newHeader`, since `getWorkspace`'s `header` is
+  still the old one until the commit. Aborting needs nothing but a
   read-write API key.
 - A holder whose lease has ended is still the holder until someone takes
   over. There are never two.

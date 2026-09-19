@@ -54,6 +54,13 @@ pub async fn get_viewer(
     .into_response())
 }
 
+/// A document of the client's, given back as the bytes it came as.
+fn raw(bytes: &[u8]) -> Option<Box<RawValue>> {
+    std::str::from_utf8(bytes)
+        .ok()
+        .and_then(|text| RawValue::from_string(text.to_owned()).ok())
+}
+
 /// `RewriteSession`.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,6 +69,8 @@ pub struct SessionOut {
     holder: String,
     lease_expires_at: String,
     new_key_id: String,
+    /// The client's document, as the bytes `beginRewrite` brought.
+    new_header: Option<Box<RawValue>>,
     staged_ids: Vec<String>,
     source_items: u64,
 }
@@ -75,6 +84,7 @@ pub fn session_json(session: &SessionView) -> SessionOut {
         holder: session.holder.as_str().to_owned(),
         lease_expires_at: rfc3339(session.lease_expires_at),
         new_key_id: session.new_key_id.as_str().to_owned(),
+        new_header: raw(&session.new_header),
         staged_ids: session.staged_ids.iter().map(ToString::to_string).collect(),
         source_items: session.source_items as u64,
     }
@@ -100,11 +110,7 @@ pub fn encryption_json(view: &EncryptionView) -> EncryptionOut {
             EncryptionState::Rewriting => "rewriting",
         },
         key_id: view.key_id.as_ref().map(|key| key.as_str().to_owned()),
-        header: view
-            .header
-            .as_deref()
-            .and_then(|bytes| std::str::from_utf8(bytes).ok())
-            .and_then(|text| RawValue::from_string(text.to_owned()).ok()),
+        header: view.header.as_deref().and_then(raw),
         rewrite: view.rewrite.as_ref().map(session_json),
     }
 }

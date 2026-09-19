@@ -57,8 +57,10 @@ you. When you do:
 - say so, in the server repository, before working around it. The contract
   is `1.0.0-draft` and **no release has been tagged**, precisely so that it
   can still change without a `/v2`;
-- an *additive* change is cheap. One has happened already:
-  `server.sourceUrl` in `getViewer`;
+- an *additive* change is cheap. Two have happened already:
+  `server.sourceUrl` in `getViewer`, and `newHeader` in `RewriteSession`,
+  which the client's own plan (PLAN-00010 D-05) found missing: without it
+  nobody but the holder's live process could resume a rewrite;
 - once the server's v0.1.0 is tagged, a change a released client cannot
   handle needs `/v2`.
 

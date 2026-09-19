@@ -161,7 +161,9 @@ sequenceDiagram
 
 If device A dies halfway, its lease runs out (ten minutes by default), and
 any other device of the workspace may `takeOverRewrite` and then either
-finish, which needs the new words, or `abortRewrite`, which needs nothing
+finish, which needs the new words and the header they unlock (the session
+carries it as `newHeader`; the workspace's own `header` stays the old one
+until the commit), or `abortRewrite`, which needs nothing
 and leaves the workspace exactly as it was. The operator can abort from the
 host as well. A rewrite that was aborted can never be reopened by a late
 copy of its `beginRewrite`: its new key id is remembered as ended.

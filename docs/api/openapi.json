@@ -1486,6 +1486,7 @@
           "holder",
           "leaseExpiresAt",
           "newKeyId",
+          "newHeader",
           "stagedIds",
           "sourceItems"
         ],
@@ -1517,6 +1518,10 @@
           "sourceItems": {
             "type": "integer",
             "minimum": 0
+          },
+          "newHeader": {
+            "$ref": "#/components/schemas/Opaque",
+            "description": "The header `beginRewrite` brought: the new data key, wrapped under the new words, which the workspace gets on commit. Whoever resumes the session, the holder after a restart or another device after `takeOverRewrite`, unlocks it with the new words. `Encryption.header` stays the old one until the commit, because that is what opens the items readers get. Added after the first draft of v1."
           }
         }
       },

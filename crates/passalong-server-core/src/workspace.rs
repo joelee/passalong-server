@@ -127,6 +127,10 @@ pub struct SessionView {
     pub lease_expires_at: u64,
     /// The key id the workspace gets on commit.
     pub new_key_id: KeyId,
+    /// The header the workspace gets on commit: the new data key, wrapped
+    /// under the new words. Whoever resumes the session unlocks it with
+    /// those words; without it a second device could only abort.
+    pub new_header: Vec<u8>,
     /// The ids already staged, newest first, so a resumed run skips them.
     pub staged_ids: Vec<ItemId>,
     /// How many items the source generation holds.

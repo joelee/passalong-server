@@ -353,6 +353,72 @@ async fn a_session_is_taken_over_and_aborted() {
 }
 
 #[tokio::test]
+async fn whoever_takes_a_session_over_finds_the_header_the_new_words_unlock() {
+    // Resuming needs the new words, and the words need the header they
+    // unlock. The old header is what readers get until the commit; without
+    // the new one in the session, a second device could only abort, and the
+    // holder itself could not resume after losing its memory.
+    let server = TestServer::start().await;
+    let old_header = "{ \"wrapped\":\"old\" }";
+    let sealed = format!("{{\"keyId\":\"{K1}\",\"header\":{old_header}}}");
+    let raw = |method: &'static str, path: &'static str, body: String| {
+        server
+            .client()
+            .request(method, path)
+            .bearer(&server.token)
+            .header("Content-Type", "application/json")
+            .body_raw(body.into_bytes())
+            .send()
+    };
+    assert_eq!(
+        raw("PUT", "/v1/workspace/encryption", sealed)
+            .await
+            .unwrap()
+            .status,
+        200
+    );
+    // Byte for byte, like every document of the client's.
+    let new_header = "{ \"zeta\":1,\"wrapped\" : \"new\",\n \"n\":1e2 }";
+    let begin = format!(
+        "{{\"kind\":\"rotate\",\"expectedKeyId\":\"{K1}\",\"newKeyId\":\"{K2}\",\"newHeader\":{new_header}}}"
+    );
+    let begun = raw("POST", "/v1/rewrite", begin).await.unwrap();
+    assert_eq!(begun.status, 201, "{}", text(&begun));
+    assert!(text(&begun).contains(new_header), "{}", text(&begun));
+
+    let desktop = server.key("desktop", Role::ReadWrite);
+    server.clock.advance(601);
+    let taken = server
+        .call_as(&desktop, "POST", "/v1/rewrite/take-over", None)
+        .await;
+    assert_eq!(taken.status, 200);
+    assert!(text(&taken).contains(new_header), "{}", text(&taken));
+    let session = server.call_as(&desktop, "GET", "/v1/rewrite", None).await;
+    assert!(text(&session).contains(new_header), "{}", text(&session));
+    assert_eq!(session.json()["newHeader"]["wrapped"], "new");
+
+    // Readers still get what opens the items that are there: the old one.
+    let workspace = server.call_as(&desktop, "GET", "/v1/workspace", None).await;
+    let encryption = workspace.json()["encryption"].clone();
+    assert_eq!(encryption["header"]["wrapped"], "old");
+    assert_eq!(encryption["rewrite"]["newHeader"]["wrapped"], "new");
+    assert!(text(&workspace).contains(old_header) && text(&workspace).contains(new_header));
+
+    // After the commit it is simply the header, and no session is left.
+    let committed = server
+        .call_as(
+            &desktop,
+            "POST",
+            "/v1/rewrite/commit",
+            Some(json!({ "newKeyId": K2 })),
+        )
+        .await;
+    assert_eq!(committed.status, 200, "{}", text(&committed));
+    assert!(text(&committed).contains(new_header));
+    assert_eq!(committed.json()["rewrite"], Value::Null);
+}
+
+#[tokio::test]
 async fn a_read_only_key_reads_the_session_and_changes_nothing() {
     let server = TestServer::start().await;
     let reader = server.key("kiosk", Role::ReadOnly);

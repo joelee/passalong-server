@@ -115,7 +115,7 @@ full workspace must still be able to change its key.
 | `freshStart` | `POST /v1/workspace/encryption/fresh-start` | `{ header, keyId }`; seals a plaintext workspace without re-encrypting anything: its items become the `plain` partition in one step |
 | `replaceHeader` | `PUT /v1/workspace/encryption/header` | `{ expectedKeyId, header }`; the change of words: same data key, no item touched |
 | `beginRewrite` | `POST /v1/rewrite` | `{ kind, expectedKeyId, newKeyId, newHeader }`; `kind` is `migrate` or `rotate`. Takes the lease; other writers now get `REWRITE_IN_PROGRESS` |
-| `getRewrite` | `GET /v1/rewrite` | The open session: kind, holder, `leaseExpiresAt`, and the ids already staged |
+| `getRewrite` | `GET /v1/rewrite` | The open session: kind, holder, `leaseExpiresAt`, `newKeyId`, `newHeader` (the header the new words unlock, for whoever resumes), and the ids already staged |
 | `heartbeatRewrite` | `POST /v1/rewrite/heartbeat` | Extends the lease |
 | `takeOverRewrite` | `POST /v1/rewrite/take-over` | Only once the lease expired; for `encrypt --recover` from another device |
 | `commitRewrite` | `POST /v1/rewrite/commit` | `{ newKeyId }`. One transaction: generation pointer, header, key id. Refused with `REWRITE_INCOMPLETE` unless as many items are staged as the workspace holds |

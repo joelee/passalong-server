@@ -6,6 +6,11 @@ passalong client's.
 
 ## Unreleased
 
+- Contract: a rewrite session carries `newHeader`, the header `beginRewrite`
+  brought. Without it, a device that took a dead session over had the new
+  words and nothing for them to unlock, and could only abort; nor could the
+  holder resume after a restart. Found by the client's v0.3.0 plan
+  (PLAN-00010 D-05) before any client was written. Additive.
 - **A release tag publishes**: `joeworks/passalong-server` on Docker Hub for
   amd64 and arm64 (`X.Y.Z`, `X.Y`, `latest`), and a GitHub release with an
   archive per architecture and `SHA256SUMS`. Run by hand, the workflow does

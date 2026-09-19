@@ -141,6 +141,7 @@ impl<S: ItemShelf> Rules<'_, S> {
             holder: session.holder.clone(),
             lease_expires_at: session.lease_expires_at,
             new_key_id: session.next.key_id.clone(),
+            new_header: session.next.header.clone(),
             staged_ids: self.shelf.ids(session.staged_generation)?,
             source_items: self.shelf.ids(self.rec.generation)?.len(),
         }))
