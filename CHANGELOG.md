@@ -6,6 +6,9 @@ passalong client's.
 
 ## Unreleased
 
+- The source is one line away: every help screen ends with the repository's
+  address and the licence; the image carries OCI labels for source, licence,
+  version, and revision; the README opens with the link.
 - `THIRD-PARTY-NOTICES`: the licence of every crate the binary links, made
   by `just notices` from `Cargo.lock`, kept current by `just ci`, and carried
   by the image beside `LICENSE`.

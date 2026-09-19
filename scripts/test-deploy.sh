@@ -44,6 +44,10 @@ done
 compose run --rm -T --entrypoint sh server -c 'head -1 /usr/share/doc/passalong-server/LICENSE' \
     | grep -q "GNU AFFERO GENERAL PUBLIC LICENSE" || fail "the image's LICENSE is not the AGPL"
 
+label() { docker image inspect "$PASSALONG_SERVER_IMAGE" --format "{{ index .Config.Labels \"org.opencontainers.image.$1\" }}"; }
+[ "$(label source)" = "https://github.com/joelee/passalong-server" ] || fail "the image does not name its source"
+[ "$(label licenses)" = "AGPL-3.0-or-later" ] || fail "the image does not name its licence"
+
 say "init, and a self-signed pair, before the server has ever run"
 compose run --rm -T server init --data-dir /var/lib/passalong-server
 compose run --rm -T server tls self-signed --host localhost --ip 127.0.0.1 >/dev/null

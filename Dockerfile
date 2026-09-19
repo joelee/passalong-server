@@ -15,6 +15,18 @@ RUN useradd --system --uid 10001 --home-dir /var/lib/passalong-server --create-h
     && chmod 0700 /etc/passalong-server /var/lib/passalong-server \
     && chown passalong-server: /etc/passalong-server /var/lib/passalong-server
 COPY --from=builder /src/target/release/passalong-server /usr/local/bin/passalong-server
+# What a registry and `docker inspect` show. The release workflow passes the
+# version and the commit; a local build has neither.
+ARG VERSION=dev
+ARG REVISION=unknown
+LABEL org.opencontainers.image.title="passalong-server" \
+      org.opencontainers.image.description="Self-hosted HTTPS server for passalong: clipboard and file sharing between your devices" \
+      org.opencontainers.image.source="https://github.com/joelee/passalong-server" \
+      org.opencontainers.image.url="https://github.com/joelee/passalong-server" \
+      org.opencontainers.image.documentation="https://github.com/joelee/passalong-server/blob/main/deploy/docker/README.md" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}"
 # The terms travel with the binary: AGPL-3.0-or-later.
 COPY LICENSE THIRD-PARTY-NOTICES /usr/share/doc/passalong-server/
 # Where `init` writes and every command looks: the configuration volume. A

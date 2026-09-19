@@ -2,7 +2,29 @@
 
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
+
+/// Where the source is. A modified server that others use over a network
+/// must offer them its own source (AGPL, section 13): whoever distributes or
+/// runs a changed version changes this to where theirs is.
+pub const SOURCE_URL: &str = env!("CARGO_PKG_REPOSITORY");
+
+/// Under every help screen, at every level.
+fn footer() -> String {
+    format!(
+        "Source:  {SOURCE_URL}\nLicence: {}, free software with NO WARRANTY; see LICENSE.",
+        env!("CARGO_PKG_LICENSE")
+    )
+}
+
+fn with_footer(command: clap::Command) -> clap::Command {
+    command.after_help(footer()).mut_subcommands(with_footer)
+}
+
+/// The command line, with the footer under every command's help.
+pub fn command() -> clap::Command {
+    with_footer(Cli::command())
+}
 
 /// Self-hosted server for passalong: the operator's commands.
 #[derive(Debug, Parser)]

@@ -4,6 +4,9 @@ A self-hosted HTTPS server for [passalong](https://github.com/joelee/passalong),
 the clipboard and file sharing tool: an alternative to keeping a passalong
 store on an SSH server or in a local folder.
 
+**Source, issues, and releases: <https://github.com/joelee/passalong-server>.**
+Free software under the GNU AGPL v3 or later.
+
 > **Status: it serves; no client speaks to it yet.** `passalong-server
 > serve` answers every operation of the [API](docs/api/README.md) over TLS
 > or behind a proxy, with API keys, workspaces, and the operator's commands
@@ -32,6 +35,22 @@ store on an SSH server or in a local folder.
 |---|---|---|
 | 0.1.x (planned) | v1 | 0.3.0 and later (planned) |
 
+## Get it, build it, change it
+
+```text
+git clone https://github.com/joelee/passalong-server
+cd passalong-server
+cargo build --release --locked -p passalong-server
+```
+
+Then [install](docs/usage.md#installing) with Docker Compose or as a systemd
+service. `passalong-server --help`, and the help of every command, ends
+with this repository's address. To work on it, start with the
+[developer guide](docs/developer-guide.md) and
+[CONTRIBUTING](CONTRIBUTING.md); bugs and ideas go to
+[issues](https://github.com/joelee/passalong-server/issues), security
+problems privately, as [SECURITY](SECURITY.md) says.
+
 ## Documentation
 
 - [Architecture](docs/architecture.md)
@@ -54,7 +73,10 @@ implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 See [LICENSE](LICENSE).
 
 The AGPL reaches network use: if you run a modified passalong-server for
-others, you must offer them the source of your version.
+others, you must offer them the source of your version. The server tells
+its clients where its source is (`server.sourceUrl` in the API, and every
+help screen); in a modified version, point that at yours: it is one
+constant, `SOURCE_URL`, taken from `repository` in `Cargo.toml`.
 
 The [passalong client](https://github.com/joelee/passalong) is a separate
 work under Apache-2.0. The two meet only at the documented

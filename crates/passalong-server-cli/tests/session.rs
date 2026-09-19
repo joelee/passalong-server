@@ -425,6 +425,34 @@ fn a_pair_is_made_once_and_its_pin_printed() {
 }
 
 #[test]
+fn help_says_where_the_source_is_and_under_which_terms() {
+    let host = Host::new();
+    // At every level: whoever reads any help is one line from the source.
+    for args in [
+        vec!["--help"],
+        vec!["key", "--help"],
+        vec!["key", "create", "--help"],
+        vec!["tls", "self-signed", "--help"],
+        vec!["help", "service"],
+    ] {
+        let output = host.raw(&args);
+        assert!(output.status.success(), "{args:?}");
+        let help = String::from_utf8(output.stdout).unwrap();
+        assert!(
+            help.contains("https://github.com/joelee/passalong-server"),
+            "{args:?}: {help}"
+        );
+        assert!(help.contains("AGPL-3.0-or-later"), "{args:?}: {help}");
+    }
+    // The version stays one line, for scripts.
+    let version = String::from_utf8(host.raw(&["--version"]).stdout).unwrap();
+    assert_eq!(
+        version,
+        format!("passalong-server {}\n", env!("CARGO_PKG_VERSION"))
+    );
+}
+
+#[test]
 fn without_a_configuration_a_command_says_where_it_looked() {
     let host = Host::new();
     let output = host.raw(&["workspace", "list"]);

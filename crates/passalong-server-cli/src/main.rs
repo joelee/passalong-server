@@ -13,7 +13,7 @@ mod service;
 
 use std::process::ExitCode;
 
-use clap::Parser;
+use clap::FromArgMatches;
 use passalong_server_core::config;
 
 use cli::{Cli, Commands};
@@ -59,7 +59,7 @@ fn run(cli: &Cli) -> commands::Done {
 
 fn main() -> ExitCode {
     // Usage errors exit with 2, which is clap's doing.
-    let cli = Cli::parse();
+    let cli = Cli::from_arg_matches(&cli::command().get_matches()).unwrap_or_else(|err| err.exit());
     match run(&cli) {
         Ok(text) => {
             print!("{text}");
