@@ -106,6 +106,11 @@ The server reads a renewed pair within half a minute; no restart. Before the
 server's first start there is no container to `exec` in; then each line
 begins `docker compose run --rm -T --entrypoint sh server -c` instead.
 
+**Let's Encrypt.** `docker compose exec server passalong-server tls
+letsencrypt --docker --host pass.example.net` prints the `certbot` command and
+a deploy hook that does the three lines above at every renewal. See
+[usage](../../docs/usage.md#lets-encrypt), and mind what it says about pins.
+
 **A reverse proxy that terminates TLS.** In `config.toml` set
 `listen.mode = "plain"` and `listen.behind_proxy = true`, publish the port
 to the proxy only, and have the proxy append the client's address to

@@ -223,6 +223,40 @@ pub fn tls(host: &Host, command: &TlsCommand) -> Done {
                 Ok(format!("{pin}\n"))
             }
         }
+        TlsCommand::Letsencrypt {
+            host: names,
+            email,
+            docker,
+        } => {
+            if host.config.listen.mode == ListenMode::Plain {
+                return Err("listen.mode is \"plain\": TLS ends at your reverse proxy, and the certificate is the proxy's to get and renew, not this server's".to_owned());
+            }
+            use std::os::unix::fs::MetadataExt;
+            let data = &host.config.server.data_dir;
+            let owner = std::fs::metadata(data)
+                .map(|meta| format!("{}:{}", meta.uid(), meta.gid()))
+                .map_err(|err| format!("{}: {err}", data.display()))?;
+            let made = crate::letsencrypt::walkthrough(&crate::letsencrypt::Inputs {
+                names: names.clone(),
+                email: email.clone(),
+                cert_file: files.cert_file.clone(),
+                key_file: files.key_file.clone(),
+                owner,
+                docker: *docker,
+            })?;
+            if host.json {
+                Ok(pretty(&json!({
+                    "certbot": made.certbot,
+                    "hookPath": crate::letsencrypt::HOOK_PATH,
+                    "hook": made.hook,
+                    "firstRun": made.first_run,
+                    "certFile": files.cert_file.display().to_string(),
+                    "keyFile": files.key_file.display().to_string(),
+                })))
+            } else {
+                Ok(made.text)
+            }
+        }
         TlsCommand::SelfSigned { host: names, ip } => {
             // Never over a pair, or half of one: a client may have pinned it.
             for file in [&files.cert_file, &files.key_file] {

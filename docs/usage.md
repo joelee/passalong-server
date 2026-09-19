@@ -210,6 +210,31 @@ is logged, and the one before it stays in use.
 
 There is no switch that turns certificate checking off, on either side.
 
+### Let's Encrypt
+
+```text
+passalong-server tls letsencrypt --host pass.example.net --email you@example.net
+```
+
+prints, and changes nothing: the `certbot` command for a certificate, and a
+deploy hook, written for this host's `tls.cert_file`, `tls.key_file`, and the
+user the server runs as, that installs every renewed pair, a whole pair or
+nothing, the key 0600. Save the hook where the text says, run it once by
+hand, and renewals need nothing more: the server reads a changed pair within
+half a minute. `--docker` prints the hook for `deploy/docker`, which goes
+through `docker compose exec` into the `config` volume; `--json` gives the
+parts as fields. It needs a public DNS name: Let's Encrypt certifies neither
+addresses nor names without a dot, for which `tls self-signed` and a pin
+remain.
+
+**Pins and renewals.** A certificate from Let's Encrypt is trusted as it is,
+so devices need no `tls_pin`. A device that pins all the same pins the key,
+and `certbot` makes a new key at every renewal unless told `--reuse-key`,
+which the printed command therefore includes. Without it, every pinned
+device is locked out at the first renewal.
+
+The server does not speak ACME itself; that is in the [backlog](backlog.md).
+
 ## Running the server
 
 ```text

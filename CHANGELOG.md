@@ -6,6 +6,11 @@ passalong client's.
 
 ## Unreleased
 
+- `passalong-server tls letsencrypt --host <name>`: prints, for this host's
+  configuration, the `certbot` command and a deploy hook that installs every
+  renewed pair for the server's user, with `--docker` for the compose
+  project. It changes nothing. The command includes `--reuse-key`, because a
+  renewal with a new key would lock out every device that pinned the old.
 - `passalong-server audit`: reads the audit trail of workspace and key
   changes, which has been written since PLAN-00003 and had no reader.
 - Contract: `getViewer` answers `server.sourceUrl`, where the server's source

@@ -116,6 +116,22 @@ admin check >/dev/null || fail "the edited configuration does not check"
 owner="$(admin_sh 'stat -c %u /etc/passalong-server/config.toml' | tr -d '\r\n')"
 [ "$owner" = 10001 ] || fail "the configuration belongs to $owner"
 
+say "the Let's Encrypt deploy hook, as printed, installs a renewed pair through exec"
+# The pair in use stands in for a renewed one: what is under test is the way in.
+mkdir -p "$work/live/nas.example"
+compose exec -T server cat /etc/passalong-server/tls/cert.pem > "$work/live/nas.example/fullchain.pem"
+compose exec -T server cat /etc/passalong-server/tls/key.pem > "$work/live/nas.example/privkey.pem"
+admin tls letsencrypt --host nas.example --docker | sed -n '/^---- .* ----$/,$p' | sed 1d \
+    | sed "s|^COMPOSE_DIR=.*|COMPOSE_DIR='$root/deploy/docker'|" > "$work/hook"
+grep -q "docker compose exec -T server" "$work/hook" || fail "no hook was printed"
+admin_sh 'touch -d "2001-01-01" /etc/passalong-server/tls/key.pem /etc/passalong-server/tls/cert.pem'
+COMPOSE_PROJECT_NAME=passalong-deploy-test RENEWED_LINEAGE="$work/live/nas.example" sh "$work/hook" >/dev/null \
+    || fail "the hook failed"
+state="$(admin_sh 'cd /etc/passalong-server/tls && stat -c "%n %u %a" key.pem cert.pem && find . -newermt 2002-01-01 -type f | sort && ls' | tr -d '\r' | tr '\n' ' ')"
+[ "$state" = "key.pem 10001 600 cert.pem 10001 644 ./cert.pem ./key.pem cert.pem key.pem " ] || fail "after the hook: $state"
+rm -rf "$work/live"
+[ "$(admin tls fingerprint | tr -d '\r\n')" = "$pin" ] || fail "the pin changed"
+
 say "it survives a restart with its data"
 compose restart --timeout 50 server >/dev/null
 for _ in $(seq 60); do

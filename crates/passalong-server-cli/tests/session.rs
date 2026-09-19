@@ -446,6 +446,41 @@ fn a_pair_is_made_once_and_its_pin_printed() {
     host.fails(&["tls", "self-signed", "--host", "nas.example"], 1);
     assert!(!cert.exists());
 
+    // Let's Encrypt: guidance from this host's configuration, and no change.
+    let before: Vec<_> = {
+        let mut files = Vec::new();
+        every_file(host.dir.path(), &mut files);
+        files
+    };
+    let guide = host.run(&["tls", "letsencrypt", "--host", "nas.example"]);
+    for part in [
+        "certbot certonly --standalone --reuse-key",
+        "-d nas.example",
+        key.to_str().unwrap(),
+        "NO `tls_pin`",
+    ] {
+        assert!(guide.contains(part), "no {part:?} in:\n{guide}");
+    }
+    let machine = host.json(&["tls", "letsencrypt", "--host", "nas.example", "--docker"]);
+    assert!(
+        machine["hook"]
+            .as_str()
+            .unwrap()
+            .contains("docker compose exec")
+    );
+    assert_eq!(machine["keyFile"], key.to_str().unwrap());
+    host.fails(&["tls", "letsencrypt"], 2);
+    assert!(
+        host.fails(&["tls", "letsencrypt", "--host", "192.0.2.4"], 1)
+            .contains("tls self-signed")
+    );
+    let after = {
+        let mut files = Vec::new();
+        every_file(host.dir.path(), &mut files);
+        files
+    };
+    assert_eq!(before, after, "it wrote something");
+
     assert!(!host.transcript.borrow().contains("PRIVATE KEY"));
 }
 

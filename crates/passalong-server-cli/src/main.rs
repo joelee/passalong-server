@@ -6,6 +6,7 @@
 
 mod cli;
 mod commands;
+mod letsencrypt;
 mod output;
 mod owner;
 mod serve;

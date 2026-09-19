@@ -109,6 +109,20 @@ pub enum TlsCommand {
     },
     /// Print the pin of the certificate in tls.cert_file.
     Fingerprint,
+    /// Print how to get, install, and renew a Let's Encrypt certificate on
+    /// this host, with certbot. Changes nothing.
+    Letsencrypt {
+        /// The public DNS name devices reach the server by. May be given
+        /// more than once; the first names the certificate.
+        #[arg(long, value_name = "NAME", required = true)]
+        host: Vec<String>,
+        /// Where Let's Encrypt writes to before a certificate expires.
+        #[arg(long, value_name = "ADDR")]
+        email: Option<String>,
+        /// The pair lives in the config volume of deploy/docker.
+        #[arg(long)]
+        docker: bool,
+    },
 }
 
 #[derive(Debug, Args)]
