@@ -8,10 +8,10 @@ tags:
   - claude-code
 type: delivery-plan
 plan_id: "PLAN-00006"
-plan_status: draft
+plan_status: approved
 plan_kind: initial
 created_at: "2026-09-19T11:35:34Z"
-approved_at: null
+approved_at: "2026-09-19T11:44:27Z"
 planner_agent: Claude Code
 planner_model: "anthropic/claude-fable-5-1"
 triggered_by: user
@@ -26,8 +26,8 @@ previous_plan: null
 requirements_count: 10
 steps_count: 8
 acceptance_criteria_count: 12
-blocking_decisions: 4
-build_ready: false
+blocking_decisions: 0
+build_ready: true
 web_research_used: false
 confidence: medium
 
@@ -45,13 +45,13 @@ current_step: null
 
 # Delivery Plan 00006: Licence Publishing And Pre Release
 
-> [!abstract] Plan status: `draft`
+> [!abstract] Plan status: `approved`
 > Before v0.1.0 is tagged: the server becomes AGPL v3, a tag publishes an
 > image to Docker Hub and archives to GitHub, the source URL is shown
 > wherever the program speaks, and two small commands arrive (`tls
-> letsencrypt`, `audit`). Four decisions await the user: D-01 (which AGPL
-> identifier), D-02 (the Docker Hub name and tags), D-03 (binaries on the
-> release), D-04 (the source URL in the API).
+> letsencrypt`, `audit`). Settled at approval: D-01 `AGPL-3.0-or-later`; D-02
+> `joeworks/passalong-server` on Docker Hub, the user's account there; D-03
+> binaries on the release; D-04 `server.sourceUrl` in the API.
 
 ## 1. Objective and outcome
 
@@ -60,7 +60,7 @@ this plan is done, the user can make the repository public, push, tag
 `v0.1.0`, and a stranger can:
 
 ```text
-docker pull joelee/passalong-server:0.1.0
+docker pull joeworks/passalong-server:0.1.0
 ```
 
 with terms they may rely on (AGPL v3), the notices of every dependency
@@ -143,10 +143,10 @@ material.
 
 | ID | Decision or blocker | Resolution | Owner | Status |
 |---|---|---|---|---|
-| PLAN-00006-D-01 | Which AGPL v3: `AGPL-3.0-or-later` or `AGPL-3.0-only` | Proposed: **`AGPL-3.0-or-later`**, the form the FSF recommends and Nextcloud and Mastodon use: a future AGPL can be adopted by anyone without asking every contributor. `-only` (Grafana's choice) keeps the terms fixed until the copyright holders agree to change them. The licence text is the same file either way; the difference is one word in the manifests and the README. This is a legal choice and the planner is not a lawyer | User | Awaiting the user |
-| PLAN-00006-D-02 | The Docker Hub repository, and its tags | Proposed: `joelee/passalong-server`, as on GitHub. A tag `vX.Y.Z` pushes `X.Y.Z`, `X.Y`, and `latest`; nothing else ever pushes. `latest` moves only on a release, never on `main` | User | Awaiting the user |
-| PLAN-00006-D-03 | Binaries on the GitHub release | Proposed: yes, `passalong-server-vX.Y.Z-linux-{amd64,arm64}.tar.gz` with `SHA256SUMS`, built on `ubuntu-22.04` runners of each architecture so that they run on glibc 2.35 and later. It gives `service install` hosts a way in without a Rust toolchain, which the backlog asks for. Against: a second thing to get right at the first release; the alternative is the image only, and `cargo build` for systemd hosts as today | User | Awaiting the user |
-| PLAN-00006-D-04 | The source URL in the API | Proposed: yes, one additive field, `server.sourceUrl` in `getViewer`, a constant of the build. AGPL section 13 obliges whoever runs a **modified** server to offer its users the source; a field that a client can show makes that a one-line change for them, and costs an unmodified server nothing. It is a contract change, the first since the contract was written: additive, ignored by a client that does not know it, in a commit of its own. The alternative is help, README, and image labels only | User | Awaiting the user |
+| PLAN-00006-D-01 | Which AGPL v3: `AGPL-3.0-or-later` or `AGPL-3.0-only` | **`AGPL-3.0-or-later`**, the form the FSF recommends and Nextcloud and Mastodon use: a future AGPL can be adopted by anyone without asking every contributor. `-only` (Grafana's choice) keeps the terms fixed until the copyright holders agree to change them. The licence text is the same file either way; the difference is one word in the manifests and the README. This is a legal choice and the planner is not a lawyer | User | Resolved at approval |
+| PLAN-00006-D-02 | The Docker Hub repository, and its tags | **`joeworks/passalong-server`**: the user's Docker Hub account is `joeworks`, not `joelee` as on GitHub, which the draft proposed. A tag `vX.Y.Z` pushes `X.Y.Z`, `X.Y`, and `latest`; nothing else ever pushes. `latest` moves only on a release, never on `main` | User | Resolved at approval |
+| PLAN-00006-D-03 | Binaries on the GitHub release | Yes, `passalong-server-vX.Y.Z-linux-{amd64,arm64}.tar.gz` with `SHA256SUMS`, built on `ubuntu-22.04` runners of each architecture so that they run on glibc 2.35 and later. It gives `service install` hosts a way in without a Rust toolchain, which the backlog asks for. Against: a second thing to get right at the first release; the alternative is the image only, and `cargo build` for systemd hosts as today | User | Resolved at approval |
+| PLAN-00006-D-04 | The source URL in the API | Yes, one additive field, `server.sourceUrl` in `getViewer`, a constant of the build. AGPL section 13 obliges whoever runs a **modified** server to offer its users the source; a field that a client can show makes that a one-line change for them, and costs an unmodified server nothing. It is a contract change, the first since the contract was written: additive, ignored by a client that does not know it, in a commit of its own. The alternative is help, README, and image labels only | User | Resolved at approval |
 | PLAN-00006-D-05 | How the notices are made | `cargo-about`, the file committed and checked for drift by `just ci`. Not generated in the image build, which would put a `cargo install` in every build | Planner | Resolved |
 | PLAN-00006-D-06 | How two architectures are built | Natively, a job per architecture (`ubuntu-22.04` and `ubuntu-22.04-arm`), merged into one manifest. A Rust release build under QEMU takes the better part of an hour; STEP-07 carries the fallback | Planner | Resolved |
 | PLAN-00006-D-07 | `tls letsencrypt`: guidance, not automation | It prints and changes nothing. It includes `--reuse-key`, because a renewed key changes the pin and would lock out every device that pinned | Planner | Resolved |
@@ -506,6 +506,7 @@ None.
 | Timestamp (UTC) | Plan status | Change | Reason | Requested/approved by |
 |---|---|---|---|---|
 | 2026-09-19T11:35:34Z | draft | Plan created | "Let's plan for another pre-release work", with four features named | @joelee |
+| 2026-09-19T11:44:27Z | approved | Approved: D-01, D-03, D-04 as proposed; D-02 changed by the user to `joeworks/passalong-server`, tags as proposed ("Merge previous working branch to `main` before starting"). `fix/fault-point-sigkill` was fast-forwarded into `main` first, so the baseline commit is now `main`. The draft was committed by the planner on that approval, as `docs/plans/AGENTS.md`, "Committing a draft", allows | User approval | @joelee |
 
 ## 19. External references
 
