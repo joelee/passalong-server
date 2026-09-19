@@ -312,7 +312,8 @@ with `user: root` or exec'd with `--user 0`.
 
 ## Encryption
 
-The server never holds a workspace's data key, its words, or plaintext. It
+[Encryption](encryption.md) follows the flows step by step. In short: the
+server never holds a workspace's data key, its words, or plaintext. It
 stores the header, the wrapped data key, as an opaque document, and knows
 the current **key id**. Every write names the key id it was made under and
 is refused atomically if that is not current. This replaces the client's

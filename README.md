@@ -54,6 +54,8 @@ problems privately, as [SECURITY](SECURITY.md) says.
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [Encryption](docs/encryption.md): who knows what, and how it flows
+- [Hand-over notes for the client's `https` backend](docs/handover-notes-v0.3.0-client.md)
 - [API](docs/api/README.md)
 - [Configuration](docs/configuration.md)
 - [Usage](docs/usage.md)
