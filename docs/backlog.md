@@ -5,21 +5,18 @@ Future work not covered by an active plan. Completed items are removed.
 ## @joelee road map for next releases
 
 ### v0.1.0
-- **The next slices of server v0.1.0**, each with its own plan (PLAN-00002
-  D-01), now that the storage slice is done (PLAN-00002, completed):
-  1. Done: API keys and the operations CLI (PLAN-00003).
-  2. Done: the HTTP surface and TLS (PLAN-00004). `serve`, every operation
-     of the contract as a route, authentication, limits, rate limiting, the
-     plaintext content check, the janitor, TLS with pins.
-  3. **Next.** Docker and systemd: `service install`, the image,
-     `deploy/docker`. It inherits: `serve` stops on SIGTERM within 30
-     seconds, so a unit's `TimeoutStopSec` and a container's stop timeout
-     must be longer; `check --health` is the health check and needs to read
-     the configuration and, in `tls` mode, the certificate; `init` expects
-     the pair in `tls/` beside the configuration file.
-- **The client's v0.3.0 backend plan**, in the client repository, from
-  `docs/api/openapi.json` and `docs/api/client-encryption-mapping.md`, once
-  that first slice confirms the contract needs no change.
+- **Server v0.1.0 is built**, in four slices after the protocol spike:
+  storage (PLAN-00002), API keys and the operations CLI (PLAN-00003), the
+  HTTP surface and TLS (PLAN-00004), Docker and systemd (PLAN-00005). What
+  is left is the user's: whether and when to tag `v0.1.0`. A tag verifies
+  the build, for amd64 and arm64, and publishes nothing.
+- **Next: the client's v0.3.0 backend plan**, in the client repository, from
+  `docs/api/openapi.json` and `docs/api/client-encryption-mapping.md`. The
+  contract needed no change while the server was built (PLAN-00004,
+  REQ-11). Until a client exists, the server has been driven only by its own
+  small client and by `curl`.
+- **arm64** has never been built: the release workflow does it on a tag, and
+  no tag has been pushed. Expect the first one to find something.
 
 ### Unscheduled
 - An open-source licence. Until then nothing is published.

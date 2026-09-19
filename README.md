@@ -7,8 +7,10 @@ store on an SSH server or in a local folder.
 > **Status: it serves; no client speaks to it yet.** `passalong-server
 > serve` answers every operation of the [API](docs/api/README.md) over TLS
 > or behind a proxy, with API keys, workspaces, and the operator's commands
-> ([usage](docs/usage.md)). Packaging for Docker and systemd comes next, and
-> the passalong client learns the protocol in its v0.3.0. Start with the
+> ([usage](docs/usage.md)), installed with
+> [Docker Compose](deploy/docker/README.md) or as a
+> [systemd service](docs/usage.md#the-systemd-service). The passalong client
+> learns the protocol in its v0.3.0. Start with the
 > idea report,
 > [IDEA-00001](docs/ideas/00001-HTTPS_Server_Backend-r04.md), and the
 > [architecture draft](docs/architecture.md).

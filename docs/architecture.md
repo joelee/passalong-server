@@ -401,17 +401,29 @@ See [the API draft](api/README.md) for the routes.
 - **Nothing is published** while the licence is proprietary: no Docker Hub
   image, no binaries. Operators build from this repository, and a release
   tag only verifies that the build works.
-- **Docker.** Built by `docker compose build` from `deploy/docker/`; amd64
-  and arm64 both build in CI. Debian slim, uid
-  10001, read-only root filesystem, one volume at
-  `/var/lib/passalong-server`. `HEALTHCHECK` runs
-  `passalong-server check --health`, so the image needs no curl. Operations
-  run with `docker exec`, against the same data directory. See
-  `deploy/docker/`.
-- **systemd.** `passalong-server service install` creates the
-  `passalong-server` user, writes the hardened system unit of
-  `docs/service/passalong-server.service`, enables it, and starts it. A test
-  keeps that file identical to the rendered template, as in the client.
+- **Docker.** Built by `docker compose build` from `deploy/docker/`; the
+  release workflow builds amd64 and arm64. Debian slim, uid 10001, read-only
+  root filesystem, all capabilities dropped. Two named volumes: `data` at
+  `/var/lib/passalong-server`, and `config` at `/etc/passalong-server` for
+  the configuration and the TLS pair. Named, because a fresh named volume
+  belongs to the image's user, and a host folder that Docker creates belongs
+  to root, where the server could not write and the commands would refuse to
+  run. `HEALTHCHECK` runs `passalong-server check --health`, so the image
+  needs no curl. The container gets 45 seconds to stop. Operations run with
+  `docker compose exec`, as the same user against the same volumes; a test
+  shows that a key made or revoked that way holds from the server's next
+  request. `scripts/test-deploy.sh` runs the README's commands end to end.
+- **systemd.** `passalong-server service install`, as root, installs the
+  binary, creates the `passalong-server` user through `sysusers.d`, creates
+  its directories, writes a configuration and, if asked, a self-signed pair,
+  and writes, enables, and starts the hardened system unit of
+  `docs/service/passalong-server.service`. A test keeps that file identical
+  to the rendered template, as in the client. What the command will do is
+  computed as a list of actions before anything is done, and everything it
+  does goes through one interface, faked in unit tests.
+  `scripts/test-service.sh` runs it for real, on a throwaway container with
+  systemd as PID 1: installed, serving under the full hardening, stopped
+  cleanly, removed with its data left, installed again over it.
 - **TLS.** `listen.mode = "tls"` uses rustls with `tls.cert_file` and
   `tls.key_file`, looked at every 30 seconds and re-read on change; a pair
   that does not load leaves the one before it in use. `mode = "plain"` is refused on a

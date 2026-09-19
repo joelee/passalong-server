@@ -1,9 +1,31 @@
 # Usage
 
 `passalong-server` is one binary: the server, and the operator's commands.
-Every command line on this page is run by the tests in
-`crates/passalong-server-cli/tests/`, except those marked as belonging to a
-later slice.
+Every command line on this page is run by a test: those of
+`crates/passalong-server-cli/tests/`, `scripts/test-deploy.sh` for Docker, and
+`scripts/test-service.sh` for systemd.
+
+## Installing
+
+Nothing is published, so every installation starts from a clone of this
+repository. There are three ways; pick one.
+
+**With Docker.** [`deploy/docker/README.md`](../deploy/docker/README.md) is
+the walkthrough: build, `init`, a TLS pair, `docker compose up -d`. The rest
+of this page applies with `docker compose exec server` before each command.
+
+**As a systemd service.** Build the binary with the Rust toolchain of
+`rust-toolchain.toml`, then let it install itself:
+
+```text
+cargo build --release --locked -p passalong-server
+sudo target/release/passalong-server service install --host nas.example --ip 192.0.2.4
+```
+
+See [below](#the-systemd-service) for what that does to the host. The rest
+of this page applies with `sudo -u passalong-server` before each command.
+
+**By hand**, for trying it out as yourself: the next section.
 
 ## From an empty host
 
@@ -77,8 +99,8 @@ reported: a deletion was cut short there.
 
 ## Who may run the commands
 
-Every command but `init` refuses to run as any user but the data
-directory's owner, root included:
+Every command but `init`, `check --health`, and `service` refuses to run as
+any user but the data directory's owner, root included:
 
 ```text
 error: /var/lib/passalong-server belongs to user 10001, and this is user 0. …
@@ -92,15 +114,60 @@ keys refuses every request rather than guess (see
 [Failing closed](architecture.md#failing-closed)). The check reads
 `/proc/self`; where there is no `/proc`, it fails closed and says so.
 
-## With Docker (the Docker slice)
-
-Build the image first, since none is published (`docker compose build` in
-`deploy/docker/`), then run the commands inside the container, which runs as
-the data directory's owner, so they need no `--user`:
+## The systemd service
 
 ```text
-docker compose exec server passalong-server key create --workspace home --label laptop
+sudo target/release/passalong-server service install --host nas.example
+sudo passalong-server service remove
 ```
+
+`service install` runs as root, and is the only command that does. On a
+host with systemd it
+
+1. copies itself to `/usr/local/bin/passalong-server`, unless that file is
+   this binary already;
+2. creates the system user `passalong-server`, who cannot log in, through
+   `/etc/sysusers.d/passalong-server.conf` and `systemd-sysusers`;
+3. creates `/etc/passalong-server`, `/etc/passalong-server/tls`, and
+   `/var/lib/passalong-server`, that user's and private to it;
+4. writes `/etc/passalong-server/config.toml` if there is none;
+5. with `--host` or `--ip`, and only if there is no certificate yet, makes a
+   self-signed pair and prints its pin;
+6. writes [`/etc/systemd/system/passalong-server.service`](service/passalong-server.service),
+   enables it, and starts it.
+
+It overwrites nothing of yours: not a configuration, not a certificate or
+key, and not a unit file that it did not write itself. Half a pair, or a
+foreign unit file, stops it before it has done anything. Run again, it does
+what is still missing and changes nothing else; run from a newer build, it
+replaces the binary and the unit and restarts the service. It never creates
+the database, which is the server's to create as its own user.
+
+Without `--host` and without a pair, a server in `tls` mode cannot start.
+The unit is then enabled and not started, and the command prints the two
+lines that are missing: `sudo -u passalong-server passalong-server tls
+self-signed --host <name>`, or your own pair put there, and `sudo systemctl
+start passalong-server.service`.
+
+After it, everything on this page is run as the service's user, never as
+root, which the commands [refuse](#who-may-run-the-commands):
+
+```text
+sudo -u passalong-server passalong-server workspace create home
+sudo -u passalong-server passalong-server key create --workspace home --label laptop
+journalctl -u passalong-server.service -f
+```
+
+The unit is hardened: no privileges, a read-only system, its own `/tmp`, no
+devices, the network, and its state directory. `systemd-analyze security`
+rates it 2.2, "OK". It stops within 45 seconds, of which requests in flight
+get 30.
+
+`service remove` stops and disables the service and removes the unit file.
+It removes nothing else: the items, the keys, the configuration, the pair
+your devices have pinned, the user, and the binary stay, and the command
+prints where they are. Deleting `/var/lib/passalong-server` is yours to do,
+and there is no undo.
 
 ## TLS
 
@@ -191,14 +258,6 @@ $ curl ... /v1/workspace
 $ curl ... --pinnedpubkey sha256//AAAA...= /healthz   # another pin
 curl: (90) SSL: public key does not match pinned public key
 ```
-
-## Not in this build yet
-
-| Command | Arrives with |
-|---|---|
-| `passalong-server service install \| remove` | The Docker and systemd slice |
-
-It exists and says so.
 
 ## Exit codes
 

@@ -6,6 +6,20 @@ passalong client's.
 
 ## Unreleased
 
+- Docker and systemd (PLAN-00005). `passalong-server service install`, as
+  root, sets a systemd host up: binary, user, directories, configuration,
+  if asked a self-signed pair, and the hardened unit, overwriting nothing;
+  `service remove` takes the unit away and leaves everything else.
+  `deploy/docker/` now uses two named volumes, for data and for
+  configuration with the TLS pair, and has a README that a test follows.
+  `init` writes to `PASSALONG_SERVER_CONFIG_FILE` when that is set. Both
+  installations are tested end to end (`just test-deploy`, `just
+  test-service`), and `just ci` runs them. Fixed: **the image did not
+  build** since PLAN-00003, because the `Dockerfile` did not copy
+  `config.sample.toml`, which the binary embeds; the compose draft's host
+  folders were created by Docker as root, where the server could not write
+  and every command refused to run; and `service install` on a host without
+  `/etc/sysusers.d`.
 - The HTTP surface and TLS (PLAN-00004): `passalong-server serve`. Every
   operation of the contract is a route, behind authentication, limits, and
   TLS; `tls self-signed`, `tls fingerprint`, `check --health`. Failed
