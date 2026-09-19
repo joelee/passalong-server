@@ -1,6 +1,6 @@
 //! Named places where the kill harness makes the process die.
 //!
-//! With the `fault-injection` feature, [`point`] aborts the process when the
+//! With the `fault-injection` feature, [`point`] kills the process when the
 //! environment names the point it was called with: `PASSALONG_FAULT` holds
 //! the name, and `PASSALONG_FAULT_SKIP` how many times to pass it first.
 //! Without the feature, which is how the server is built, `point` is empty
@@ -31,9 +31,24 @@ pub fn point(name: &'static str) {
         .and_then(|text| text.parse::<u64>().ok())
         .unwrap_or(0);
     if PASSED.fetch_add(1, Ordering::SeqCst) == skip {
-        // No unwinding, no destructors, no flushing: as a kill would.
-        std::process::abort();
+        die();
     }
+}
+
+/// Ends the process by SIGKILL, as `kill -9` would: no unwinding, no
+/// destructors, no flushing, and nothing the process can do about it. Not
+/// `abort`, whose SIGABRT dumps core: the harness kills hundreds of times a
+/// run, and a desktop that announces crashes would announce every one.
+/// `std` cannot send a signal, and `unsafe` is not allowed here, so `kill`
+/// does it. Should that fail, `abort` still ends the process, and the
+/// harness, which expects SIGKILL, says so.
+#[cfg(feature = "fault-injection")]
+fn die() -> ! {
+    let _ = std::process::Command::new("kill")
+        .args(["-KILL", &std::process::id().to_string()])
+        .status();
+    // SIGKILL is delivered before `kill` has returned; this is not reached.
+    std::process::abort();
 }
 
 /// Does nothing: this build has no fault injection.

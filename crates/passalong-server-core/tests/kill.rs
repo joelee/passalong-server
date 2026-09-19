@@ -16,6 +16,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
+use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
@@ -226,12 +227,7 @@ enum Ended {
 }
 
 fn run_child(dir: &Path, scenario: &str, fault: Option<(&str, u32)>) -> Ended {
-    // The child aborts on purpose, hundreds of times. Where the kernel writes
-    // core dumps beside the process (`kernel.core_pattern=core`), that would
-    // be hundreds of files in this crate; so it runs with core dumps off.
-    // `exec` makes the child the process that is waited for, signal and all.
-    let mut command = Command::new("sh");
-    command.args(["-c", "ulimit -c 0; exec \"$0\" \"$@\"", CHILD]);
+    let mut command = Command::new(CHILD);
     command.args(["script", dir.to_str().unwrap(), scenario]);
     command
         .env_remove("PASSALONG_FAULT")
@@ -244,8 +240,17 @@ fn run_child(dir: &Path, scenario: &str, fault: Option<(&str, u32)>) -> Ended {
     let output = command.output().unwrap();
     match output.status.code() {
         Some(0) => Ended::ByItself,
-        // Aborted: no exit code, a signal.
-        None => Ended::Killed,
+        // Killed, and by SIGKILL, which dumps no core. A fault point that
+        // aborts instead leaves a core dump per kill, hundreds a run, each a
+        // crash report on a desktop that announces them. Any other signal is
+        // a real crash, not one of ours.
+        None => match output.status.signal() {
+            Some(9) => Ended::Killed,
+            other => panic!(
+                "{scenario}, {fault:?}: the child died by signal {other:?}, not SIGKILL: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ),
+        },
         Some(code) => panic!(
             "{scenario}, {fault:?}: the child ended with {code}: {}",
             String::from_utf8_lossy(&output.stderr)

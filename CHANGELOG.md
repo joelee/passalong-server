@@ -6,6 +6,11 @@ passalong client's.
 
 ## Unreleased
 
+- The kill harness kills its child with SIGKILL instead of aborting it. An
+  abort dumps core, and a run of the harness did so hundreds of times: each
+  a crash report on a desktop that announces them, and, where the kernel
+  writes cores beside the process, a file in the repository. The harness
+  now fails if its child dies by any other signal.
 - Docker and systemd (PLAN-00005). `passalong-server service install`, as
   root, sets a systemd host up: binary, user, directories, configuration,
   if asked a self-signed pair, and the hardened unit, overwriting nothing;
