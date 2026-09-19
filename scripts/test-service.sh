@@ -45,6 +45,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
+docker_major="$(docker version --format '{{.Server.Version}}' | cut -d. -f1)"
+if [ "${docker_major:-0}" -lt 28 ] 2>/dev/null; then
+    fail "this needs Docker 28 or later, for writable cgroups in a container that is not privileged; this daemon is $(docker version --format '{{.Server.Version}}'). It is never run privileged instead"
+fi
+
 say "build: the server's image, for its binary, and a host with systemd"
 docker build --quiet -t "$server_image" "$root" >/dev/null
 docker build --quiet -t "$host_image" -f "$root/deploy/test/systemd.Dockerfile" "$root/deploy/test" >/dev/null

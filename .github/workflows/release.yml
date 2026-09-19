@@ -1,34 +1,191 @@
 name: Release
 
-# Pushing a tag vX.Y.Z checks the release records and verifies the build:
-# the workspace, and the image for amd64 and arm64. It publishes nothing: no
-# image is pushed and no GitHub release is created, because the server is
-# not distributed yet. The licence is AGPL-3.0-or-later since PLAN-00006,
-# which also brings the publish job.
+# Pushing a tag vX.Y.Z publishes that version:
+#   - joeworks/passalong-server on Docker Hub, for amd64 and arm64, as X.Y.Z,
+#     X.Y, and latest;
+#   - a GitHub release, with docs/release/vX.Y.Z.md as its notes and an
+#     archive per architecture with SHA256SUMS.
+# Run by hand (workflow_dispatch) it does all of that EXCEPT publishing: it
+# pushes no image and creates no release. Do that before the first tag, and
+# after any change to this file.
+#
+# What is published cannot be taken back from whoever fetched it. A bad
+# release is answered by the next patch release; a version tag is never moved.
+#
+# Secrets, and nothing else, hold the credentials: DOCKERHUB_USERNAME and
+# DOCKERHUB_TOKEN, an access token limited to this one repository. See
+# docs/release/first-publication.md.
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+  IMAGE: joeworks/passalong-server
+
 jobs:
-  verify:
-    name: Check the tag and verify the build
+  check:
+    name: The tag and the release records
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version="$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version *= *"\(.*\)"/\1/p' Cargo.toml)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$REF_TYPE" = tag ]; then
+            scripts/check-release-tag.sh "$REF_NAME"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "A manual run: $version is built and nothing is published."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  ci:
+    name: just ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: scripts/check-release-tag.sh "$GITHUB_REF_NAME"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          components: rustfmt, clippy, llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov,cargo-deny,cargo-about,just
+      - run: just ci
+
+  build:
+    name: Build (${{ matrix.arch }})
+    needs: [check, ci]
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # Each architecture on a runner of its own kind: a Rust release
+          # build under emulation takes the better part of an hour. 22.04,
+          # so that the archive's binary runs on glibc 2.35 and later.
+          - arch: amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release --locked -p passalong-server
-      - uses: docker/setup-qemu-action@v3
+      - name: The binary, as it is released
+        run: cargo build --release --locked -p passalong-server
+      - name: The archive
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: scripts/release-archive.sh archive "$VERSION" "$ARCH" target/release/passalong-server dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: archive-${{ matrix.arch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
       - uses: docker/setup-buildx-action@v3
-      - name: Build the image for amd64 and arm64 without pushing
+      - uses: docker/login-action@v3
+        if: needs.check.outputs.publish == 'true'
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: The image, pushed by digest only when publishing
+        id: image
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: false
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            VERSION=${{ needs.check.outputs.version }}
+            REVISION=${{ github.sha }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=${{ needs.check.outputs.publish }}
+      - name: Remember the digest
+        if: needs.check.outputs.publish == 'true'
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          mkdir -p digests
+          touch "digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@v4
+        if: needs.check.outputs.publish == 'true'
+        with:
+          name: digest-${{ matrix.arch }}
+          path: digests/*
+          if-no-files-found: error
+
+  archives:
+    name: Checksums, verified
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: archive-*
+          path: dist
+          merge-multiple: true
+      - run: scripts/release-archive.sh sums dist
+      - run: scripts/release-archive.sh verify dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish
+    needs: [check, build, archives]
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      # To create the release; nothing else in this workflow may write.
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-files
+          path: dist
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: One manifest for both architectures
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          sources=""
+          for digest in digests/*; do sources="$sources $IMAGE@sha256:${digest##*/}"; done
+          # shellcheck disable=SC2086
+          docker buildx imagetools create \
+            -t "$IMAGE:$VERSION" -t "$IMAGE:${VERSION%.*}" -t "$IMAGE:latest" $sources
+          docker buildx imagetools inspect "$IMAGE:$VERSION"
+      - name: The GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" --verify-tag --title "passalong-server $TAG" \
+            --notes-file "docs/release/$TAG.md" dist/*.tar.gz dist/SHA256SUMS

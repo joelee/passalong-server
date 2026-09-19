@@ -6,6 +6,12 @@ passalong client's.
 
 ## Unreleased
 
+- **A release tag publishes**: `joeworks/passalong-server` on Docker Hub for
+  amd64 and arm64 (`X.Y.Z`, `X.Y`, `latest`), and a GitHub release with an
+  archive per architecture and `SHA256SUMS`. Run by hand, the workflow does
+  everything but publish. CI runs on every branch and pull request.
+  `scripts/release-archive.sh` makes and verifies the archives, and `just
+  ci` tries it on the developer's machine.
 - `passalong-server tls letsencrypt --host <name>`: prints, for this host's
   configuration, the `certbot` command and a deploy hook that installs every
   renewed pair for the server's user, with `--docker` for the compose

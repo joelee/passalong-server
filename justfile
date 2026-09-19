@@ -57,7 +57,7 @@ links:
 check: fmt-check lint links test coverage build
 
 # Full CI pipeline: all checks, then the audit, workflows, and the image
-ci: check audit notices-check lint-workflows docker-build test-deploy test-service
+ci: check audit notices-check lint-workflows test-release-archive docker-build test-deploy test-service
 
 # Build the container image
 docker-build:
@@ -87,6 +87,26 @@ notices-check:
         echo "error: THIRD-PARTY-NOTICES is stale or missing; run \`just notices\` and commit it" >&2
         exit 1
     fi
+
+# What a release offers for download, made and verified on this machine
+test-release-archive:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # As the release builds it: no features, so no fault injection.
+    cargo build --release --locked -p passalong-server
+    out="$(mktemp -d)"; trap 'rm -rf "$out"' EXIT
+    version="$(cargo metadata --no-deps --format-version 1 | sed -n 's/.*"name":"passalong-server","version":"\([^"]*\)".*/\1/p')"
+    arch="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
+    scripts/release-archive.sh archive "$version" "$arch" target/release/passalong-server "$out"
+    scripts/release-archive.sh sums "$out"
+    scripts/release-archive.sh verify "$out"
+    # The same input gives the same bytes.
+    first="$(sha256sum "$out"/*.tar.gz | cut -c1-64)"
+    scripts/release-archive.sh archive "$version" "$arch" target/release/passalong-server "$out" >/dev/null
+    [ "$first" = "$(sha256sum "$out"/*.tar.gz | cut -c1-64)" ] || { echo "error: the archive is not reproducible" >&2; exit 1; }
+    # And what is not a release is refused.
+    ! scripts/release-archive.sh archive "$version" riscv target/release/passalong-server "$out" 2>/dev/null
+    ! scripts/release-archive.sh archive 1.0 "$arch" target/release/passalong-server "$out" 2>/dev/null
 
 # Run the CLI, e.g. `just run key list`
 run *ARGS:

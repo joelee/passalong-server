@@ -1,10 +1,17 @@
 name: CI
 
+# Every push to every branch, and every pull request: `just ci`, which is what
+# a developer runs before pushing. It publishes nothing; only a release tag
+# does (release.yml).
 on:
-  # Feature branches run CI on every push, before a pull request exists.
   push:
-    branches: [main, "feature/**"]
+    branches: ["**"]
   pull_request:
+
+# A newer push to the same branch makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -14,7 +21,10 @@ env:
 
 jobs:
   linux:
-    name: Linux (just ci, includes the image build)
+    name: Linux (just ci)
+    # `just ci` builds the image and runs both installations end to end.
+    # scripts/test-service.sh needs Docker 28 or later, for writable cgroups
+    # in a container that is NOT privileged; it says so if the runner's is older.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -26,4 +36,5 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov,cargo-deny,cargo-about,just
+      - run: docker version --format 'Docker {{.Server.Version}}'
       - run: just ci
