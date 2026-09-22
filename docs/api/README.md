@@ -1,8 +1,9 @@
-# API (draft)
+# API
 
-> **Draft for discussion**, from
-> [IDEA-00001](../ideas/00001-HTTPS_Server_Backend-r04.md), as the protocol
-> spike (PLAN-00001) left it. [`openapi.json`](openapi.json) is the formal
+> **Version 1**, served by passalong-server v0.1.0 and spoken by the
+> passalong client from v0.3.0. Designed in
+> [IDEA-00001](../ideas/00001-HTTPS_Server_Backend-r04.md) and the protocol
+> spike (PLAN-00001). [`openapi.json`](openapi.json) is the formal
 > document; a test keeps its operations and error codes equal to the tables
 > here. The routes exist: a test compares the server's route table with the
 > document, operation for operation, so neither can change alone.

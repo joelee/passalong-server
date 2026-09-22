@@ -6,6 +6,10 @@ passalong client's.
 
 ## Unreleased
 
+## v0.1.0 - 2026-09-22T16:27:46Z
+
+The first release. Everything below is new.
+
 - `key create` and `docs/usage.md` no longer say the key goes into `.env`
   on the device: the passalong client keeps it in an owner-only file.
   Raised by the client's v0.3.0 build.

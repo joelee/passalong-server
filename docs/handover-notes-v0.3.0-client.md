@@ -54,9 +54,9 @@ the only things that have used it are the server's own test client and
 `curl`. Expect to find places where the contract is awkward or wrong for
 you. When you do:
 
-- say so, in the server repository, before working around it. The contract
-  is `1.0.0-draft` and **no release has been tagged**, precisely so that it
-  can still change without a `/v2`;
+- say so, in the server repository, before working around it. Until the
+  server's v0.1.0 was tagged the contract was a draft, so that it could
+  change without a `/v2`; that is how the two additions below were made;
 - an *additive* change is cheap. Two have happened already:
   `server.sourceUrl` in `getViewer`, and `newHeader` in `RewriteSession`,
   which the client's own plan (PLAN-00010 D-05) found missing: without it

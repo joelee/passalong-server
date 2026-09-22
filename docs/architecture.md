@@ -183,7 +183,7 @@ twice, a `PUT` sent again restarts the staging file, and a `commitUpload`
 sent again returns the same outcome, from a tombstone the committed upload
 leaves behind. So a connection that drops after the server committed, but
 before the client heard, costs one small request, not a second upload. The
-[API draft](api/README.md#replays) has the full table.
+[API](api/README.md#replays) has the full table.
 
 Item size is unbounded in the client: sizes are `u64`, and the `ssh` and
 `local` backends set no limit. `limits.max_item_bytes` is therefore a limit
@@ -364,7 +364,7 @@ stateDiagram-v2
 | `encrypt --recover` | `getRewrite`; `takeOverRewrite` if its lease expired; then resume it, or `abortRewrite` |
 | `prune --plain` | list and delete with `partition=plain` |
 
-Operation names are the `operationId`s of [the API draft](api/README.md).
+Operation names are the `operationId`s of [the API](api/README.md).
 The full session ships in server v0.1, by the user's decision of 2026-09-18;
 doing migration and rotation on a `local` or `ssh` store and importing the
 result is the fallback if the spike fails (IDEA-00001 §11, option E). Every
@@ -395,7 +395,7 @@ the client's migration.
 | `probe_write` | `probeWrite`: checks the role, the rewrite state, and that staging is writable |
 | `key_id`, `content_key` | Local to the client; the key id comes from the header at open |
 
-See [the API draft](api/README.md) for the routes.
+See [the API](api/README.md) for the routes.
 
 ## Deployment
 
