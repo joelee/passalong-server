@@ -72,7 +72,8 @@ A workspace is one passalong store: the devices that share a clipboard.
 ## Keys
 
 A key belongs to exactly one workspace, and opens that workspace and no
-other. On the device it goes into `.env` as `PASSALONG_API_KEY`.
+other. On the device, `passalong init` asks for it and keeps it in an
+owner-only file (`api.key` beside its configuration, by default).
 
 | Command | What it does |
 |---|---|
@@ -317,4 +318,5 @@ goes to standard output; logs go to standard error.
 ## On a device
 
 passalong v0.3.0 and later: `passalong init`, choose `https`, and give the
-URL and the key. See the client's documentation.
+URL, the pin if the certificate is self-signed, and the key, which it keeps
+in an owner-only file. See the client's documentation.

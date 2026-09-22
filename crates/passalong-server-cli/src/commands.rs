@@ -538,7 +538,7 @@ pub fn key(host: &Host, command: &KeyCommand) -> Done {
                 return Ok(pretty(&machine));
             }
             Ok(format!(
-                "{token}\n\nThis is the key for `{label}` on workspace `{workspace}` ({}); {until}.\nIt is shown this once and cannot be shown again: only its hash is kept.\nOn the device it belongs in .env as PASSALONG_API_KEY. If it is lost: create another, and\n  passalong-server key revoke {}\n",
+                "{token}\n\nThis is the key for `{label}` on workspace `{workspace}` ({}); {until}.\nIt is shown this once and cannot be shown again: only its hash is kept.\nOn the device, `passalong init` asks for it and keeps it in a file of its own. If it is lost: create another, and\n  passalong-server key revoke {}\n",
                 role_text(role),
                 info.id.as_str()
             ))

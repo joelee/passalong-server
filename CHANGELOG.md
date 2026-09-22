@@ -6,6 +6,9 @@ passalong client's.
 
 ## Unreleased
 
+- `key create` and `docs/usage.md` no longer say the key goes into `.env`
+  on the device: the passalong client keeps it in an owner-only file.
+  Raised by the client's v0.3.0 build.
 - Contract: a rewrite session carries `newHeader`, the header `beginRewrite`
   brought. Without it, a device that took a dead session over had the new
   words and nothing for them to unlock, and could only abort; nor could the
