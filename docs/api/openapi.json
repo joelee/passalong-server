@@ -2,9 +2,9 @@
   "openapi": "3.1.0",
   "info": {
     "title": "passalong-server API",
-    "version": "1.0.0-draft",
+    "version": "1.0.0",
     "summary": "The contract between passalong-server and the passalong client.",
-    "description": "Draft of the protocol spike (PLAN-00001). REST + JSON; item content travels as byte streams. The server never interprets an item's `meta` and never exposes a field taken from it. Every request is safe to repeat: each operation that is not a GET says in `x-passalong-replay` what the same request, sent again, is answered. `x-passalong-errors` lists the codes an operation can refuse with. See README.md and rewrite-session.md beside this file."
+    "description": "Version 1 of the contract, as passalong-server v0.1.0 serves it. REST + JSON; item content travels as byte streams. The server never interprets an item's `meta` and never exposes a field taken from it. Every request is safe to repeat: each operation that is not a GET says in `x-passalong-replay` what the same request, sent again, is answered. `x-passalong-errors` lists the codes an operation can refuse with. See README.md and rewrite-session.md beside this file."
   },
   "servers": [
     {
