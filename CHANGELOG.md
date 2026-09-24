@@ -6,6 +6,8 @@ passalong client's.
 
 ## Unreleased
 
+- The release workflow fails at once, before building, when a tag run
+  finds `DOCKERHUB_USERNAME` or `DOCKERHUB_TOKEN` unset.
 ## v0.1.0 - 2026-09-22T16:27:46Z
 
 The first release. Everything below is new.

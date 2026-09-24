@@ -40,11 +40,23 @@ jobs:
         env:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           version="$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version *= *"\(.*\)"/\1/p' Cargo.toml)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           if [ "$REF_TYPE" = tag ]; then
             scripts/check-release-tag.sh "$REF_NAME"
+            # Before anything is built: a tag run that cannot log in to Docker
+            # Hub fails here in seconds, not in the build jobs ten minutes on.
+            # The values are never printed; only whether each is set.
+            missing=""
+            [ -n "$DOCKERHUB_USERNAME" ] || missing="$missing DOCKERHUB_USERNAME"
+            [ -n "$DOCKERHUB_TOKEN" ] || missing="$missing DOCKERHUB_TOKEN"
+            if [ -n "$missing" ]; then
+              echo "::error::Publishing needs the repository secret(s)$missing, which are not set. See docs/release/first-publication.md. Nothing was built or published; set them and re-run this workflow for the tag."
+              exit 1
+            fi
             echo "publish=true" >> "$GITHUB_OUTPUT"
           else
             echo "A manual run: $version is built and nothing is published."
